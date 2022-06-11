@@ -71,7 +71,7 @@ func copyFile(from File, to io.ReaderFrom, toPath string) (uint64, error) {
 				progress := float64(currentSize) / float64(size)
 				bar := strings.Repeat("#", int(progress*50))
 				remaining := time.Duration((float64(time.Since(start)) / float64(currentSize)) * float64(size-currentSize))
-				fmt.Printf("\r[%-50s]%3d%% %s copied, %s remaining         ", bar, int(progress*100), humanize.Bytes(currentSize), remaining.String())
+				fmt.Printf("\r[%-50s]%3d%% %s copied, %s remaining         ", bar, int(progress*100), humanize.Bytes(currentSize), remaining.Round(time.Second).String())
 				pWriter.Write(buff[:n])
 			}
 			if err != nil {

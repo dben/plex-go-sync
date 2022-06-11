@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/dustin/go-humanize"
 	ffmpeg_go "github.com/u2takey/ffmpeg-go"
 	"github.com/urfave/cli"
 	"log"
@@ -126,7 +127,7 @@ func reencodeVideo(src FileSystem, dest FileSystem, file string, config *Config)
 	}
 
 	progress, msg := FfmpegConverter(srcFile, destFile, ffmpeg_go.KwArgs{
-		"crf": 23, "s": "1280x720", "format": "mp4", "loglevel": "warning",
+		"crf": 23, "s": "1280x720", "format": "mp4", "loglevel": "warning", "y": "",
 	})
 
 	completed := false
@@ -138,24 +139,29 @@ func reencodeVideo(src FileSystem, dest FileSystem, file string, config *Config)
 		case data, more := <-progress:
 			completed = !more
 			if more {
-				percent := int(math.Round(100 * data.OutTime / data.Duration))
+				percent := int(math.Round(100 * float64(data.OutTime) / float64(data.Duration)))
 				if percent < 1 {
 					percent = 1
 				}
 				bar := strings.Repeat("#", percent/2)
-				remaining := time.Duration((float64(data.Elapsed) / data.OutTime) * (data.Duration - data.OutTime))
-				fmt.Printf("\r[%-50s]%3d%% at %sx, %s remaining         ", bar, percent, data.Speed, remaining.Round(time.Second).String())
+				remaining := (data.Elapsed / (data.OutTime + time.Second)) * (data.Duration - data.OutTime)
+				fmt.Printf("\r[%-50s]%3d%% at %sx, %s remaining %s", bar, percent, data.Speed,
+					remaining.Round(time.Second).String(), strings.Repeat(" ", 10))
 				//_ = json.NewEncoder(os.Stdout).Encode(data)
+			} else {
+				log.Println(" Completed", humanize.Bytes(data.TotalSize), data.Duration)
+				if data.TotalSize == 0 {
+					msg <- errors.New("file incomplete")
+				}
 			}
 		case err = <-msg:
 			log.Println(err)
 			return destFile, err
 		}
 	}
-	fmt.Println()
 
 	if isSrcCopy {
-		log.Println("Removing src")
+		log.Println("Removing src", strings.Repeat(" ", 40))
 		if err := srcFile.Remove(); err != nil {
 			log.Println("error removing temp file: ", err)
 		}

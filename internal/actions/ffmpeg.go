@@ -20,17 +20,19 @@ type FfmpegProps struct {
 	Fps        float64
 	Bitrate    string
 	TotalSize  uint64
-	OutTime    float64
+	OutTime    time.Duration
 	DupFrames  uint64
 	DropFrames uint64
 	Speed      string
 	Progress   string
-	Duration   float64
+	Duration   time.Duration
 	Elapsed    time.Duration
 }
 
 type probeFormat struct {
-	Duration string `json:"duration"`
+	Duration   string `json:"duration"`
+	FormatName string `json:"format_name"`
+	BitRate    string `json:"bit_rate"`
 }
 
 type probeData struct {
@@ -42,17 +44,22 @@ func FfmpegConverter(in filesystem.File, out filesystem.File, args ffmpeg_go.KwA
 	result, _ := ffmpeg_go.Probe(path.Clean(in.GetAbsolutePath()))
 	duration, err := getProbeDuration(result)
 	if err != nil || duration == 0 {
-		duration = 4 * 60 * 60 //default to 4 hours, should be bigger than needed
+		duration = 4 * time.Hour //default to 4 hours, should be bigger than needed
 	}
+
 	uri, socket := ffmpegProgressSock(duration)
 
 	go func() {
 		defer close(msg)
+		if err != nil {
+			msg <- err
+		}
+
+		fmt.Println("Converting: ", in.GetAbsolutePath())
 
 		err = ffmpeg_go.Input(path.Clean(in.GetAbsolutePath())).
 			Output(path.Clean(out.GetAbsolutePath()), args).
 			GlobalArgs("-progress", uri).
-			OverWriteOutput().
 			ErrorToStdOut().
 			Run()
 
@@ -64,7 +71,7 @@ func FfmpegConverter(in filesystem.File, out filesystem.File, args ffmpeg_go.KwA
 	return socket, msg
 }
 
-func getProbeDuration(a string) (float64, error) {
+func getProbeDuration(a string) (time.Duration, error) {
 	pd := probeData{}
 	err := json.Unmarshal([]byte(a), &pd)
 	if err != nil {
@@ -74,10 +81,10 @@ func getProbeDuration(a string) (float64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return f, nil
+	return time.Duration(f * float64(time.Second)), nil
 }
 
-func ffmpegProgressSock(duration float64) (string, chan FfmpegProps) {
+func ffmpegProgressSock(duration time.Duration) (string, chan FfmpegProps) {
 	rand.Seed(time.Now().Unix())
 	sockFileName := path.Join(os.TempDir(), fmt.Sprintf("%d_sock", rand.Int()))
 	l, err := net.Listen("unix", sockFileName)
@@ -102,7 +109,7 @@ func ffmpegProgressSock(duration float64) (string, chan FfmpegProps) {
 		if err != nil {
 			log.Fatal("accept error:", err)
 		}
-		ot := float64(0)
+		ot := time.Duration(0)
 		buf := make([]byte, 16)
 		data := ""
 		for {
@@ -114,8 +121,8 @@ func ffmpegProgressSock(duration float64) (string, chan FfmpegProps) {
 			data += string(buf)
 			props := FfmpegProps{Duration: duration}
 			if m := OutTime.FindAllStringSubmatch(data, -1); len(m) > 0 && len(m[len(m)-1]) > 1 {
-				props.OutTime, _ = strconv.ParseFloat(m[len(m)-1][1], 32)
-				props.OutTime /= 1000000
+				outTime, _ := strconv.ParseInt(m[len(m)-1][1], 10, 64)
+				props.OutTime = time.Duration(outTime * int64(time.Microsecond))
 				if props.OutTime == ot {
 					continue
 				}
