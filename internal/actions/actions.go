@@ -161,7 +161,7 @@ func CloneLibraries(c *cli.Context) error {
 
 		for i := 0; i < len(playlistItems); i++ {
 			remaining := time.Duration((float64(time.Since(start)) / float64(i+1)) * float64(len(playlistItems)-i+1))
-			log.Printf("%s: %s used of %s, %s remaining.\n", playlists[j].Name, humanize.Bytes(playlists[j].Size-totalBytes), playlists[j].RawSize, remaining.Round(time.Second).String())
+			log.Printf("%s: %s used of %s, %s elapsed, %s remaining.\n", playlists[j].Name, humanize.Bytes(totalBytes-playlists[j].Size), playlists[j].RawSize, time.Since(start).Round(time.Second).String(), remaining.Round(time.Second).String())
 
 			item := playlistItems[i]
 			if existing[item.Path] > 0 {

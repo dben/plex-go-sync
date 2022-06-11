@@ -7,6 +7,7 @@ import (
 	iofs "io/fs"
 	"log"
 	"strings"
+	"time"
 )
 
 func cleanFiles(remove removeFS, fs iofs.FS, lookup map[string]bool) (map[string]uint64, uint64, error) {
@@ -51,6 +52,7 @@ func copyFile(from File, to io.ReaderFrom, toPath string) (uint64, error) {
 	log.Printf("Copying %s \n", from.GetAbsolutePath())
 	log.Printf("     to %s\n", toPath)
 
+	start := time.Now()
 	reader, cleanup, err := from.ReadFile()
 	defer pReader.Close()
 	defer cleanup()
@@ -61,14 +63,15 @@ func copyFile(from File, to io.ReaderFrom, toPath string) (uint64, error) {
 
 	go func() {
 		buff := make([]byte, 1024*1024)
-		currentSize := 0
+		currentSize := uint64(0)
 		for {
 			n, err := reader.Read(buff)
 			if n != 0 {
-				currentSize += n
-				progress := float32(currentSize) / float32(size)
+				currentSize += uint64(n)
+				progress := float64(currentSize) / float64(size)
 				bar := strings.Repeat("#", int(progress*50))
-				fmt.Printf("\r[%-50s]%3d%% %s copied of %s     ", bar, int(progress*100), humanize.Bytes(uint64(currentSize)), humanize.Bytes(size))
+				remaining := time.Duration((float64(time.Since(start)) / float64(currentSize)) * float64(size-currentSize))
+				fmt.Printf("\r[%-50s]%3d%% %s copied, %s remaining         ", bar, int(progress*100), humanize.Bytes(currentSize), remaining.String())
 				pWriter.Write(buff[:n])
 			}
 			if err != nil {
