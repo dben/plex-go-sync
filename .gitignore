@@ -1,0 +1,5 @@
+plex-go-sync
+.DS_Store
+configs/config.json
+.idea
+progress.json
