@@ -13,6 +13,7 @@ func main() {
 	app.Name = "plex-go-sync"
 	app.Usage = "Sync Plex Libraries"
 	app.Version = "0.0.1"
+	log.SetFlags(log.Ltime | log.Lshortfile)
 
 	app.Commands = []cli.Command{
 		{

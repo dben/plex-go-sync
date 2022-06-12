@@ -3,6 +3,7 @@ package actions
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/dustin/go-humanize"
 	ffmpeg_go "github.com/u2takey/ffmpeg-go"
 	"log"
 	"math/rand"
@@ -33,18 +34,45 @@ type probeFormat struct {
 	Duration   string `json:"duration"`
 	FormatName string `json:"format_name"`
 	BitRate    string `json:"bit_rate"`
+	Size       string `json:"size"`
+}
+
+type probeStreams struct {
+	CodecName string `json:"codec_name"`
+	CodecType string `json:"codec_type"`
+	Width     int    `json:"width"`
+	Height    int    `json:"height"`
+	BitRate   string `json:"bit_rate"`
 }
 
 type probeData struct {
-	Format probeFormat `json:"format"`
+	Format  probeFormat    `json:"format"`
+	Streams []probeStreams `json:"streams"`
 }
 
-func FfmpegConverter(in filesystem.File, out filesystem.File, args ffmpeg_go.KwArgs) (chan FfmpegProps, chan error) {
+func FfmpegConverter(in filesystem.File, out filesystem.File, args ffmpeg_go.KwArgs, bitrateFilter uint64, height int) (chan FfmpegProps, chan error) {
 	msg := make(chan error)
 	result, _ := ffmpeg_go.Probe(path.Clean(in.GetAbsolutePath()))
-	duration, err := getProbeDuration(result)
+	duration, size, bitrate, h, err := getProbeData(result)
 	if err != nil || duration == 0 {
 		duration = 4 * time.Hour //default to 4 hours, should be bigger than needed
+	}
+
+	if (bitrate <= bitrateFilter || bitrate == 0) && h <= height {
+		log.Println("Skipping conversion -", bitrate, height)
+		socket := make(chan FfmpegProps)
+		go func() {
+			si, p := humanize.ComputeSI(float64(bitrate))
+			socket <- FfmpegProps{
+				TotalSize: size,
+				OutTime:   duration,
+				Duration:  duration,
+				Bitrate:   fmt.Sprintf("%f%sbps", si, p),
+			}
+			close(socket)
+		}()
+
+		return socket, msg
 	}
 
 	uri, socket := ffmpegProgressSock(duration)
@@ -71,17 +99,35 @@ func FfmpegConverter(in filesystem.File, out filesystem.File, args ffmpeg_go.KwA
 	return socket, msg
 }
 
-func getProbeDuration(a string) (time.Duration, error) {
+func getProbeData(a string) (time.Duration, uint64, uint64, int, error) {
 	pd := probeData{}
 	err := json.Unmarshal([]byte(a), &pd)
 	if err != nil {
-		return 0, err
+		return 0, 0, 0, 0, err
 	}
-	f, err := strconv.ParseFloat(pd.Format.Duration, 64)
+	duration, err := strconv.ParseFloat(pd.Format.Duration, 64)
 	if err != nil {
-		return 0, err
+		return 0, 0, 0, 0, err
 	}
-	return time.Duration(f * float64(time.Second)), nil
+	size, err := strconv.ParseUint(pd.Format.Size, 10, 64)
+	if err != nil {
+		return 0, 0, 0, 0, err
+	}
+
+	var bitrate uint64
+	var height = 0
+	for _, stream := range pd.Streams {
+		if stream.CodecType == "video" {
+			bitrate, err = strconv.ParseUint(stream.BitRate, 10, 64)
+			if err != nil || stream.Height == 0 {
+				continue
+			}
+			height = stream.Height
+			break
+		}
+	}
+
+	return time.Duration(duration * float64(time.Second)), size, bitrate, height, nil
 }
 
 func ffmpegProgressSock(duration time.Duration) (string, chan FfmpegProps) {

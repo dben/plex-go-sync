@@ -31,12 +31,12 @@ func (f *LocalFileSystem) DownloadFile(fs FileSystem, filename string) (uint64, 
 	if err := os.MkdirAll(path.Dir(absPath), 0755); err != nil {
 		return 0, err
 	}
-	file, err := os.Create(absPath)
+	file, err := os.Create(path.Clean(absPath))
 	if err != nil {
 		return 0, err
 	}
 
-	return copyFile(fs.GetFile(strings.TrimPrefix(filename, "/")), file, absPath)
+	return copyFile(fs.GetFile(filename), file, absPath)
 
 }
 
@@ -45,7 +45,10 @@ func (f *LocalFileSystem) GetFile(filename string) File {
 }
 
 func (f *LocalFileSystem) ReadFile(filename string) (io.Reader, func(), error) {
-	file, err := os.Open(path.Join(f.Path, strings.TrimPrefix(filename, "/")))
+	file, err := os.Open(path.Clean(path.Join(f.Path, strings.TrimPrefix(filename, "/"))))
+	if err != nil {
+		log.Println("Error opening file: ", f.Path, filename)
+	}
 	return file, func() { _ = file.Close() }, err
 }
 
@@ -56,8 +59,10 @@ func (f *LocalFileSystem) GetPath() string {
 func (f *LocalFileSystem) GetSize(filename string) uint64 {
 	stat, err := os.Stat(path.Join(f.Path, strings.TrimPrefix(filename, "/")))
 	if err != nil {
+		log.Println("Error getting size of file: ", f.Path, filename, err.Error())
 		return 0
 	}
+	log.Println("Size of file: ", f.Path, filename, stat.Size())
 
 	return uint64(stat.Size())
 }
@@ -75,5 +80,6 @@ func (f *LocalFileSystem) RemoveAll(dir string) error {
 }
 
 func (f *LocalFileSystem) Remove(dir string) error {
-	return os.Remove(path.Join(f.Path, strings.TrimPrefix(dir, "/")))
+	log.Println(f.Path, dir)
+	return os.Remove(path.Clean(path.Join(f.Path, strings.TrimPrefix(dir, "/"))))
 }

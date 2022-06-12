@@ -2,6 +2,7 @@ package filesystem
 
 import (
 	"io"
+	"log"
 	"path"
 )
 
@@ -14,6 +15,7 @@ type File interface {
 	GetRelativePath() string
 	GetAbsolutePath() string
 	GetSize() uint64
+	GetFileSystem() FileSystem
 	IsLocal() bool
 	Remove() error
 }
@@ -23,12 +25,6 @@ type FileImpl struct {
 	CachedSize uint64
 }
 
-func NewFile(base string, file string) File {
-	return &FileImpl{
-		FileSystem: NewFileSystem(base),
-		Path:       file,
-	}
-}
 func (f *FileImpl) CopyFrom(src FileSystem) (uint64, error) {
 	size, err := f.FileSystem.DownloadFile(src, f.Path)
 	f.CachedSize = size
@@ -42,6 +38,9 @@ func (f *FileImpl) CopyTo(dest FileSystem) (File, error) {
 		CachedSize: size,
 	}
 	return destFile, err
+}
+func (f *FileImpl) GetFileSystem() FileSystem {
+	return f.FileSystem
 }
 func (f *FileImpl) ReadFile() (io.Reader, func(), error) {
 	return f.FileSystem.ReadFile(f.Path)
@@ -63,6 +62,7 @@ func (f *FileImpl) IsLocal() bool {
 	return f.FileSystem.IsLocal()
 }
 func (f *FileImpl) Remove() error {
+	log.Println("Removing file", f.GetAbsolutePath())
 	return f.FileSystem.Remove(f.Path)
 }
 func (f *FileImpl) MoveFrom(src FileSystem) (uint64, error) {
@@ -77,6 +77,8 @@ func (f *FileImpl) MoveFrom(src FileSystem) (uint64, error) {
 	return size, nil
 }
 func (f *FileImpl) MoveTo(dest FileSystem) (File, error) {
+	log.Println("Moving file", f.GetAbsolutePath(), "to", dest.GetPath())
+
 	destFile := &FileImpl{
 		FileSystem: dest,
 		Path:       f.Path,

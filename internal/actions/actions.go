@@ -113,23 +113,20 @@ func CloneLibraries(c *cli.Context) error {
 		var existingSize uint64
 		if len(playlists[j].Items) == 0 {
 			playlistItems, playlistItemMap, err = GetPlaylistItems(playlists[j].Name, config.Server, config.Token)
-			if err != nil {
-				return err
-			}
 			playlists[j].Items = playlistItems
 			base, err = getBase(playlistItems)
 			log.Println("Cleaning ", path.Join(dest.GetPath(), base), " directory")
-			existing, existingSize, err = dest.Clean(base, playlistItemMap)
-			if err != nil {
-				return err
-			}
+			log.Println("Existing Size: ", humanize.Bytes(existingSize))
+
 		} else {
-			playlistItemMap := make(map[string]bool)
+			playlistItemMap = make(map[string]bool)
 			for _, item := range playlists[j].Items {
 				playlistItemMap[item.Path] = true
 			}
 			playlistItems = playlists[j].Items
 			base, err = getBase(playlistItems)
+			existing, existingSize, err = dest.Clean(base, nil)
+			log.Println("Existing Size: ", humanize.Bytes(existingSize))
 		}
 		log.Println(playlists[j].Name, " items: ", len(playlistItems))
 
@@ -160,8 +157,16 @@ func CloneLibraries(c *cli.Context) error {
 		start := time.Now().Add(-time.Second)
 
 		for i := 0; i < len(playlistItems); i++ {
-			remaining := time.Duration((float64(time.Since(start)) / float64(i+1)) * float64(len(playlistItems)-i+1))
-			log.Printf("%s: %s used of %s, %s elapsed, %s remaining.\n", playlists[j].Name, humanize.Bytes(totalBytes-playlists[j].Size), playlists[j].RawSize, time.Since(start).Round(time.Second).String(), remaining.Round(time.Second).String())
+			usedSize := totalBytes - playlists[j].Size + 1
+			remaining := time.Duration((float64(time.Since(start)) / float64(usedSize)) * float64(playlists[j].Size))
+			if remaining < 0 { // this should be enough to check invalid times
+				remaining = time.Duration(3*len(playlistItems)) * time.Minute // rough estimate
+			}
+			log.Printf("%s: %s used of %s, %s elapsed, %s (%s) remaining.\n", playlists[j].Name,
+				humanize.Bytes(usedSize+existingSize), playlists[j].RawSize,
+				time.Since(start).Round(time.Second).String(), remaining.Round(time.Second).String(),
+				humanize.Bytes(playlists[j].Size),
+			)
 
 			item := playlistItems[i]
 			if existing[item.Path] > 0 {
@@ -174,18 +179,17 @@ func CloneLibraries(c *cli.Context) error {
 				playlists[j].Size += clearedBytes
 			}
 
-			tmpFile, err := reencodeVideo(src, dest, item.Path, config)
+			tmpFile, size, err := reencodeVideo(src, dest, item.Path, config)
 			if err != nil {
-				log.Printf("Error reencoding %s: %s\n", tmpFile.GetRelativePath(), err)
+				log.Printf("Error reencoding %s: %s\n", tmpFile.GetAbsolutePath(), err)
 				if tmpFile != nil {
 					_ = tmpFile.Remove()
 				}
 				continue
 			}
-			size := tmpFile.GetSize()
 			fits, err := ifItFitsItSits(tmpFile, dest, playlists[j].Size)
 			if err != nil {
-				log.Printf("Error moving %s: %s\n", tmpFile.GetRelativePath(), err)
+				log.Printf("Error moving %s: %s\n", tmpFile.GetAbsolutePath(), err)
 				continue
 			}
 			if !fits {

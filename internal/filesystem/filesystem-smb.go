@@ -54,6 +54,7 @@ func (f *SmbFileSystem) Clean(base string, lookup map[string]bool) (map[string]u
 }
 
 func (f *SmbFileSystem) DownloadFile(fs FileSystem, filename string) (uint64, error) {
+	log.Println("downloading", filename, "to", f.GetPath())
 	dir, filename, ok := strings.Cut(strings.TrimPrefix(filename, "/"), "/")
 	if !ok {
 		return 0, errors.New("invalid path")
@@ -63,17 +64,23 @@ func (f *SmbFileSystem) DownloadFile(fs FileSystem, filename string) (uint64, er
 	if err != nil {
 		return 0, err
 	}
+	err = share.MkdirAll(path.Dir(filename), 0755)
+	if err != nil {
+		return 0, err
+	}
 
 	if stat, err := share.Stat(filename); err == nil {
 		return uint64(stat.Size()), nil
 	}
 
+	log.Println("Opening FILE")
 	file, err := share.Create(filename)
 	if err != nil {
 		return 0, err
 	}
 
-	return copyFile(fs.GetFile(filename), file, path.Join(f.GetPath(), dir, filename))
+	log.Println("Copy Copy Copy")
+	return copyFile(fs.GetFile(path.Join(dir, filename)), file, path.Join(f.GetPath(), dir, filename))
 }
 
 func (f *SmbFileSystem) GetFile(filename string) File {
@@ -148,6 +155,7 @@ func (f *SmbFileSystem) RemoveAll(dir string) error {
 }
 
 func (f *SmbFileSystem) Remove(filename string) error {
+	log.Println("remote removal?", filename)
 	path, filename, ok := strings.Cut(strings.TrimPrefix(filename, "/"), "/")
 	if !ok {
 		return errors.New("invalid path")

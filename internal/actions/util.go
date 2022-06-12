@@ -19,6 +19,8 @@ import (
 	"time"
 )
 
+const KILO = 1000
+
 func ReadConfig(configFile string, args *cli.Context) (*Config, error) {
 	var config Config
 	log.Println("Loading config...")
@@ -113,23 +115,23 @@ func GetPlaylistItems(name string, server string, token string) ([]PlaylistItem,
 	return results, hashmap, err
 }
 
-func reencodeVideo(src FileSystem, dest FileSystem, file string, config *Config) (File, error) {
+func reencodeVideo(src FileSystem, dest FileSystem, file string, config *Config) (File, uint64, error) {
 	slice := strings.Split(file, ".")
 	outFile := strings.Join(slice[:len(slice)-1], ".") + ".mp4"
 
 	destFile, err := getLocalFile(dest.GetFile(outFile), path.Join(config.TempDir, "dest"))
 	if err != nil {
-		return destFile, err
+		return destFile, 0, err
 	}
 	srcFile, isSrcCopy, err := getOrCopyLocalFile(src.GetFile(file), path.Join(config.TempDir, "src"))
 	if err != nil {
-		return destFile, err
+		return destFile, 0, err
 	}
 
 	progress, msg := FfmpegConverter(srcFile, destFile, ffmpeg_go.KwArgs{
-		"crf": 23, "s": "1280x720", "format": "mp4", "loglevel": "warning", "y": "",
-	})
-
+		"c:v": "h264_videotoolbox", "b:v": "3500k", "s": "1280x720", "format": "mp4", "loglevel": "warning", "y": "",
+	}, 3500*KILO, 720)
+	totalSize := uint64(0)
 	completed := false
 	for {
 		if completed {
@@ -144,20 +146,26 @@ func reencodeVideo(src FileSystem, dest FileSystem, file string, config *Config)
 					percent = 1
 				}
 				bar := strings.Repeat("#", percent/2)
-				remaining := (data.Elapsed / (data.OutTime + time.Second)) * (data.Duration - data.OutTime)
+				remaining := time.Duration((float64(data.Elapsed) / float64(data.OutTime+time.Second)) * float64(data.Duration-data.OutTime))
 				fmt.Printf("\r[%-50s]%3d%% at %sx, %s remaining %s", bar, percent, data.Speed,
 					remaining.Round(time.Second).String(), strings.Repeat(" ", 10))
-				//_ = json.NewEncoder(os.Stdout).Encode(data)
-			} else {
-				log.Println(" Completed", humanize.Bytes(data.TotalSize), data.Duration)
-				if data.TotalSize == 0 {
-					msg <- errors.New("file incomplete")
+				if totalSize < data.TotalSize {
+					totalSize = data.TotalSize
 				}
+			} else {
+				log.Println(" Completed", humanize.Bytes(totalSize))
 			}
 		case err = <-msg:
 			log.Println(err)
-			return destFile, err
+			if err != nil {
+				return destFile, totalSize, err
+			}
 		}
+	}
+
+	srcSize := srcFile.GetSize()
+	if totalSize > 0 && totalSize >= srcSize-(20*humanize.MiByte) {
+		return srcFile, srcSize, nil
 	}
 
 	if isSrcCopy {
@@ -166,7 +174,12 @@ func reencodeVideo(src FileSystem, dest FileSystem, file string, config *Config)
 			log.Println("error removing temp file: ", err)
 		}
 	}
-	return destFile, nil
+	if totalSize == 0 {
+		log.Println(errors.New("file has 0 bytes"))
+		return destFile, 0, err
+	}
+
+	return destFile, totalSize, nil
 
 }
 
@@ -178,12 +191,10 @@ func ifItFitsItSits(tmpFile File, dest FileSystem, remainingBytes uint64) (bool,
 		if err = tmpFile.Remove(); err != nil {
 			log.Println("error removing dest file", err)
 		}
-
-	}
-	if tmpFile.GetSize() > remainingBytes {
+	} else if tmpFile.GetSize() > remainingBytes {
 		return false, err
 	}
-	return true, nil
+	return true, err
 }
 
 func removeLast(bytes uint64, dest FileSystem, items []PlaylistItem, existing map[string]uint64) uint64 {

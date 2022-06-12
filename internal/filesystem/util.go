@@ -22,7 +22,7 @@ func cleanFiles(remove removeFS, fs iofs.FS, lookup map[string]bool) (map[string
 		if len(split) > 1 {
 			key = strings.Join(split[:len(split)-1], ".")
 		}
-		if lookup[key] == true {
+		if lookup == nil || lookup[key] == true {
 			detail, err := info.Info()
 			if err != nil {
 				return err
@@ -51,6 +51,9 @@ func copyFile(from File, to io.ReaderFrom, toPath string) (uint64, error) {
 	size := from.GetSize()
 	log.Printf("Copying %s \n", from.GetAbsolutePath())
 	log.Printf("     to %s\n", toPath)
+	if size == 0 {
+		return 0, fmt.Errorf("file is empty: %s", from.GetAbsolutePath())
+	}
 
 	start := time.Now()
 	reader, cleanup, err := from.ReadFile()
@@ -87,6 +90,5 @@ func copyFile(from File, to io.ReaderFrom, toPath string) (uint64, error) {
 		return uint64(written), err
 	}
 
-	log.Println()
 	return uint64(written), nil
 }
