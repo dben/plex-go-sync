@@ -11,8 +11,10 @@ import (
 	"os"
 	"path"
 	"plex-go-sync/internal/filesystem"
+	"plex-go-sync/internal/logger"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -43,6 +45,9 @@ type probeStreams struct {
 	Width     int    `json:"width"`
 	Height    int    `json:"height"`
 	BitRate   string `json:"bit_rate"`
+	Tags      struct {
+		BPS string `json:"BPS"`
+	}
 }
 
 type probeData struct {
@@ -50,7 +55,8 @@ type probeData struct {
 	Streams []probeStreams `json:"streams"`
 }
 
-func FfmpegConverter(in filesystem.File, out filesystem.File, args ffmpeg_go.KwArgs, bitrateFilter uint64, height int) (chan FfmpegProps, chan error) {
+func FfmpegConverter(in filesystem.File, out filesystem.File, bitrateFilter uint64, height int) (chan FfmpegProps, chan error) {
+	// TODO: make this more configurable
 	msg := make(chan error)
 	result, _ := ffmpeg_go.Probe(path.Clean(in.GetAbsolutePath()))
 	duration, size, bitrate, h, err := getProbeData(result)
@@ -58,43 +64,72 @@ func FfmpegConverter(in filesystem.File, out filesystem.File, args ffmpeg_go.KwA
 		duration = 4 * time.Hour //default to 4 hours, should be bigger than needed
 	}
 
+	var socket chan FfmpegProps
+	var uri string
 	if (bitrate <= bitrateFilter || bitrate == 0) && h <= height {
-		log.Println("Skipping conversion -", bitrate, height)
-		socket := make(chan FfmpegProps)
+		if strings.HasSuffix(in.GetRelativePath(), ".mp4") {
+			logger.LogInfo("Skipping conversion - ", bitrate, height)
+			socket = make(chan FfmpegProps)
+			go func() {
+				si, p := humanize.ComputeSI(float64(bitrate))
+				socket <- FfmpegProps{
+					TotalSize: size,
+					OutTime:   duration,
+					Duration:  duration,
+					Bitrate:   fmt.Sprintf("%f%sbps", si, p),
+				}
+				close(socket)
+			}()
+		} else {
+			uri, socket = ffmpegProgressSock(duration)
+
+			go func() {
+				defer close(msg)
+				if err != nil {
+					msg <- err
+				}
+
+				fmt.Println("Converting: ", in.GetAbsolutePath())
+
+				err = ffmpeg_go.Input(path.Clean(in.GetAbsolutePath())).
+					Output(path.Clean(out.GetAbsolutePath()), ffmpeg_go.KwArgs{
+						"vcodec": "copy", "acodec": "copy", "format": "mp4", "loglevel": "warning", "y": "",
+					}).
+					GlobalArgs("-progress", uri).
+					ErrorToStdOut().
+					Run()
+
+				if err != nil {
+					msg <- err
+				}
+			}()
+		}
+
+	} else {
+
+		uri, socket = ffmpegProgressSock(duration)
+
 		go func() {
-			si, p := humanize.ComputeSI(float64(bitrate))
-			socket <- FfmpegProps{
-				TotalSize: size,
-				OutTime:   duration,
-				Duration:  duration,
-				Bitrate:   fmt.Sprintf("%f%sbps", si, p),
+			defer close(msg)
+			if err != nil {
+				msg <- err
 			}
-			close(socket)
+
+			fmt.Println("Converting: ", in.GetAbsolutePath())
+
+			err = ffmpeg_go.Input(path.Clean(in.GetAbsolutePath())).
+				Output(path.Clean(out.GetAbsolutePath()), ffmpeg_go.KwArgs{
+					"c:v": "libx264", "crf": "23", "s": "1280x720", "format": "mp4", "loglevel": "warning", "y": "",
+				}).
+				GlobalArgs("-progress", uri).
+				ErrorToStdOut().
+				Run()
+
+			if err != nil {
+				msg <- err
+			}
 		}()
-
-		return socket, msg
 	}
-
-	uri, socket := ffmpegProgressSock(duration)
-
-	go func() {
-		defer close(msg)
-		if err != nil {
-			msg <- err
-		}
-
-		fmt.Println("Converting: ", in.GetAbsolutePath())
-
-		err = ffmpeg_go.Input(path.Clean(in.GetAbsolutePath())).
-			Output(path.Clean(out.GetAbsolutePath()), args).
-			GlobalArgs("-progress", uri).
-			ErrorToStdOut().
-			Run()
-
-		if err != nil {
-			msg <- err
-		}
-	}()
 
 	return socket, msg
 }
@@ -119,12 +154,18 @@ func getProbeData(a string) (time.Duration, uint64, uint64, int, error) {
 	for _, stream := range pd.Streams {
 		if stream.CodecType == "video" {
 			bitrate, err = strconv.ParseUint(stream.BitRate, 10, 64)
+			if (bitrate == 0) && stream.Tags.BPS != "" {
+				bitrate, err = strconv.ParseUint(stream.Tags.BPS, 10, 64)
+			}
 			if err != nil || stream.Height == 0 {
 				continue
 			}
 			height = stream.Height
 			break
 		}
+	}
+	if bitrate == 0 {
+		bitrate = uint64(float64(size) * 8 / duration)
 	}
 
 	return time.Duration(duration * float64(time.Second)), size, bitrate, height, nil

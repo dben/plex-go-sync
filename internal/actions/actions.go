@@ -4,17 +4,18 @@ import (
 	"fmt"
 	"github.com/dustin/go-humanize"
 	"github.com/urfave/cli"
-	"log"
 	"path"
 	"plex-go-sync/internal/filesystem"
+	"plex-go-sync/internal/logger"
 	"plex-go-sync/internal/plex"
-	"strings"
 	"time"
 )
 
 func SyncPlayStatus(c *cli.Context) error {
+	logger.SetLogLevel(c.String("log-level"))
 	config, err := ReadConfig(c.String("configs"), c)
 	if err != nil {
+		logger.LogError(err.Error())
 		return err
 	}
 
@@ -23,27 +24,30 @@ func SyncPlayStatus(c *cli.Context) error {
 
 	lib := dest.RefreshLibraries()
 	if err != nil {
+		logger.LogError(err.Error())
 		return err
 	}
 	for key := range lib {
 
 		destLibrary, err := dest.GetLibraryContent(key, "")
 		if err != nil {
+			logger.LogWarning("Skipping library: ", err.Error())
 			continue
 		}
 		srcLibrary, libType, err := source.GetLibrarySectionByName(destLibrary.MediaContainer.LibrarySectionTitle, "")
 		if err != nil {
+			logger.LogWarning("Skipping library: ", err.Error())
 			continue
 		}
 
 		if libType == "show" {
 			for i, show := range destLibrary.MediaContainer.Metadata {
-				progress := i / len(destLibrary.MediaContainer.Metadata)
-				bar := strings.Repeat("#", progress*50)
-				fmt.Printf("\r[%-50s]%3d%%          ", bar, progress*100)
+				progress := float64(i) / float64(len(destLibrary.MediaContainer.Metadata))
+				logger.Progress(progress)
 
 				destEpisodes, err := dest.GetEpisodes(show.RatingKey)
 				if err != nil {
+					logger.LogWarning("Skipping show: ", err.Error())
 					continue
 				}
 				srcShow := ""
@@ -58,6 +62,7 @@ func SyncPlayStatus(c *cli.Context) error {
 				}
 				srcEpisodes, err := source.GetEpisodes(srcShow)
 				if err != nil {
+					logger.LogWarning("Skipping show: ", err.Error())
 					continue
 				}
 				// TODO: optimize this
@@ -71,9 +76,8 @@ func SyncPlayStatus(c *cli.Context) error {
 			}
 		} else if libType == "movie" {
 			for i, destMovie := range destLibrary.MediaContainer.Metadata {
-				progress := i / len(destLibrary.MediaContainer.Metadata)
-				bar := strings.Repeat("#", progress*50)
-				fmt.Printf("\r[%-50s]%3d%%          ", bar, progress*100)
+				progress := float64(i) / float64(len(destLibrary.MediaContainer.Metadata))
+				logger.Progress(progress)
 
 				for _, srcMovie := range srcLibrary.MediaContainer.Metadata {
 					if srcMovie.Title == destMovie.Title {
@@ -88,8 +92,10 @@ func SyncPlayStatus(c *cli.Context) error {
 }
 
 func CloneLibraries(c *cli.Context) error {
+	logger.SetLogLevel(c.String("log-level"))
 	config, err := ReadConfig(c.String("configs"), c)
 	if err != nil {
+		logger.LogError(err.Error())
 		return err
 	}
 	dest := filesystem.NewFileSystem(config.Destination)
@@ -102,86 +108,81 @@ func CloneLibraries(c *cli.Context) error {
 		playlists = config.Playlists
 	}
 
-	log.Println("Playlists to copy: ", len(config.Playlists))
+	logger.LogInfo("Playlists to copy: ", len(config.Playlists))
 
 	for j := 0; j < len(playlists); j++ {
-		var playlistItemMap map[string]bool
 		var playlistItems []PlaylistItem
 		var base string
-
 		var existing map[string]uint64
 		var existingSize uint64
+
 		if len(playlists[j].Items) == 0 {
+			var playlistItemMap map[string]bool
 			playlistItems, playlistItemMap, err = GetPlaylistItems(playlists[j].Name, config.Server, config.Token)
 			playlists[j].Items = playlistItems
 			base, err = getBase(playlistItems)
-			log.Println("Cleaning ", path.Join(dest.GetPath(), base), " directory")
-			log.Println("Existing Size: ", humanize.Bytes(existingSize))
-
+			logger.LogInfo("Cleaning ", path.Join(dest.GetPath(), base), " directory")
+			existing, existingSize, err = dest.Clean(base, playlistItemMap)
 		} else {
-			playlistItemMap = make(map[string]bool)
-			for _, item := range playlists[j].Items {
-				playlistItemMap[item.Path] = true
-			}
 			playlistItems = playlists[j].Items
 			base, err = getBase(playlistItems)
 			existing, existingSize, err = dest.Clean(base, nil)
-			log.Println("Existing Size: ", humanize.Bytes(existingSize))
 		}
-		log.Println(playlists[j].Name, " items: ", len(playlistItems))
+		logger.LogInfo("Existing Size: ", humanize.Bytes(existingSize))
 
 		if err != nil {
-			log.Println(err.Error(), ", skipping playlist")
+			logger.LogWarning("Skipping playlist: ", err.Error())
 			continue
 		}
 
-		log.Println("Cleaning ", path.Join(config.TempDir, "src", base), " directory")
+		logger.LogInfo("Cleaning ", path.Join(config.TempDir, "src", base), " directory")
 		if config.TempDir != "" {
 			if err = filesystem.NewLocalFileSystem(config.TempDir).RemoveAll(path.Join("src", base)); err != nil {
-				log.Println(err.Error())
+				logger.LogWarning(err.Error())
 			}
 		}
 
-		log.Println("Cleaning ", path.Join(config.TempDir, "dest", base), " directory")
+		logger.LogInfo("Cleaning ", path.Join(config.TempDir, "dest", base), " directory")
 		if config.TempDir != "" {
 			if err = filesystem.NewLocalFileSystem(config.TempDir).RemoveAll(path.Join("src", base)); err != nil {
-				log.Println(err.Error())
+				logger.LogWarning(err.Error())
 			}
 		}
 
-		totalBytes := playlists[j].GetSize()
-		playlists[j].Size = playlists[j].GetSize() - existingSize
+		totalBytes := playlists[j].GetTotalSize()
+		playlists[j].Size = totalBytes - existingSize
 
-		log.Println("Starting conversion")
+		logger.LogInfo("Starting conversion")
 
 		start := time.Now().Add(-time.Second)
 
 		for i := 0; i < len(playlistItems); i++ {
 			usedSize := totalBytes - playlists[j].Size + 1
-			remaining := time.Duration((float64(time.Since(start)) / float64(usedSize)) * float64(playlists[j].Size))
+			remaining := time.Duration((float64(time.Since(start)) / float64(usedSize-existingSize)) * float64(playlists[j].Size))
 			if remaining < 0 { // this should be enough to check invalid times
 				remaining = time.Duration(3*len(playlistItems)) * time.Minute // rough estimate
 			}
-			log.Printf("%s: %s used of %s, %s elapsed, %s (%s) remaining.\n", playlists[j].Name,
-				humanize.Bytes(usedSize+existingSize), playlists[j].RawSize,
+			logger.LogInfof(logger.Green+"%s: %s used of %s, %s elapsed, %s (%s) remaining."+logger.Off+"\n", playlists[j].Name,
+				humanize.Bytes(usedSize), playlists[j].RawSize,
 				time.Since(start).Round(time.Second).String(), remaining.Round(time.Second).String(),
 				humanize.Bytes(playlists[j].Size),
 			)
 
 			item := playlistItems[i]
 			if existing[item.Path] > 0 {
+				logger.LogInfo("File exists, skipping ", item.Path)
 				continue
 			}
 			originalBytes := src.GetSize(item.Path)
 			if playlists[j].Size < originalBytes && i != len(playlistItems)-1 {
-				log.Println("Cleaning up old files...")
+				logger.LogInfo("Cleaning up old files...")
 				clearedBytes := removeLast(originalBytes, dest, playlistItems[i+1:], existing)
 				playlists[j].Size += clearedBytes
 			}
 
 			tmpFile, size, err := reencodeVideo(src, dest, item.Path, config)
 			if err != nil {
-				log.Printf("Error reencoding %s: %s\n", tmpFile.GetAbsolutePath(), err)
+				logger.LogErrorf("Error reencoding %s: %s\n", tmpFile.GetAbsolutePath(), err)
 				if tmpFile != nil {
 					_ = tmpFile.Remove()
 				}
@@ -189,10 +190,11 @@ func CloneLibraries(c *cli.Context) error {
 			}
 			fits, err := ifItFitsItSits(tmpFile, dest, playlists[j].Size)
 			if err != nil {
-				log.Printf("Error moving %s: %s\n", tmpFile.GetAbsolutePath(), err)
+				logger.LogErrorf("Error moving %s: %s\n", tmpFile.GetAbsolutePath(), err)
 				continue
 			}
 			if !fits {
+				logger.LogInfo("Finished copying ", playlists[j].Name)
 				playlists[j].Size = 0
 				playlists[j].Items = []PlaylistItem{}
 				break
@@ -200,7 +202,7 @@ func CloneLibraries(c *cli.Context) error {
 
 			playlists[j].Size -= size
 			playlists[j].Items = playlistItems[i+1:]
-			log.Println()
+			logger.LogInfo()
 
 			_ = WriteProgress(config.Playlists)
 		}
@@ -210,8 +212,10 @@ func CloneLibraries(c *cli.Context) error {
 }
 
 func CleanLibrary(c *cli.Context) error {
+	logger.SetLogLevel(c.String("log-level"))
 	config, err := ReadConfig(c.String("configs"), c)
 	if err != nil {
+		logger.LogError(err.Error())
 		return err
 	}
 	mediaLibrary := filesystem.NewFileSystem(config.Destination)
@@ -219,25 +223,23 @@ func CleanLibrary(c *cli.Context) error {
 	for _, playlist := range config.Playlists {
 		playlistItems, playlistItemMap, err := GetPlaylistItems(playlist.Name, config.Server, config.Token)
 		if err != nil {
-			return err
+			logger.LogWarning("Skipping playlist", err.Error())
+			continue
 		}
 
-		log.Println(playlist.Name, " items: ", len(playlistItems))
 		base, err := getBase(playlistItems)
 		if err != nil {
-			log.Println(err.Error(), ", skipping playlist")
+			logger.LogWarning("Skipping playlist:", err.Error())
 			continue
 		}
 
 		_, totalSize, err := mediaLibrary.Clean(base, playlistItemMap)
 		if err != nil {
-			return err
+			logger.LogWarning("Skipping playlist:", err.Error())
+			continue
 		}
 
-		log.Printf("%s: %s used of %s\n", playlist.Name, humanize.Bytes(totalSize), humanize.Bytes(playlist.GetSize()))
-		if err != nil {
-			return err
-		}
+		logger.LogInfof("%s: %s used of %s\n", playlist.Name, humanize.Bytes(totalSize), humanize.Bytes(playlist.GetSize()))
 	}
 	return nil
 }

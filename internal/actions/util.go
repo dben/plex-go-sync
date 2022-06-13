@@ -3,16 +3,13 @@ package actions
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"github.com/dustin/go-humanize"
-	ffmpeg_go "github.com/u2takey/ffmpeg-go"
 	"github.com/urfave/cli"
-	"log"
-	"math"
 	"math/rand"
 	"os"
 	"path"
 	. "plex-go-sync/internal/filesystem"
+	"plex-go-sync/internal/logger"
 	"plex-go-sync/internal/plex"
 	"strconv"
 	"strings"
@@ -23,7 +20,7 @@ const KILO = 1000
 
 func ReadConfig(configFile string, args *cli.Context) (*Config, error) {
 	var config Config
-	log.Println("Loading config...")
+	logger.LogInfo("Loading config...")
 	file, err := os.Open(configFile)
 	if err != nil {
 		return nil, err
@@ -48,9 +45,11 @@ func ReadConfig(configFile string, args *cli.Context) (*Config, error) {
 		}
 	}
 
-	writer := json.NewEncoder(os.Stdout)
-	writer.SetIndent("", "  ")
-	_ = writer.Encode(config)
+	if logger.LogLevel == "VERBOSE" {
+		writer := json.NewEncoder(os.Stdout)
+		writer.SetIndent("", "  ")
+		_ = writer.Encode(config)
+	}
 
 	return &config, err
 }
@@ -59,7 +58,7 @@ func GetPlaylistItems(name string, server string, token string) ([]PlaylistItem,
 	var results []PlaylistItem
 	plexServer, err := plex.New(server, token)
 	if err != nil {
-		log.Println("Failed to connect to plex: ", err)
+		logger.LogError("Failed to connect to plex: ", err)
 		return nil, nil, err
 	}
 
@@ -112,6 +111,7 @@ func GetPlaylistItems(name string, server string, token string) ([]PlaylistItem,
 		}
 		hashmap[strings.Join(split[:len(split)-1], ".")] = true
 	})
+	logger.LogVerbose("Playlist ", name, " retrieved, ", len(results), " items")
 	return results, hashmap, err
 }
 
@@ -121,16 +121,16 @@ func reencodeVideo(src FileSystem, dest FileSystem, file string, config *Config)
 
 	destFile, err := getLocalFile(dest.GetFile(outFile), path.Join(config.TempDir, "dest"))
 	if err != nil {
+		logger.LogWarning("error getting dest file: ", err)
 		return destFile, 0, err
 	}
 	srcFile, isSrcCopy, err := getOrCopyLocalFile(src.GetFile(file), path.Join(config.TempDir, "src"))
 	if err != nil {
+		logger.LogWarning("error getting src file: ", err)
 		return destFile, 0, err
 	}
 
-	progress, msg := FfmpegConverter(srcFile, destFile, ffmpeg_go.KwArgs{
-		"c:v": "h264_videotoolbox", "b:v": "3500k", "s": "1280x720", "format": "mp4", "loglevel": "warning", "y": "",
-	}, 3500*KILO, 720)
+	progress, msg := FfmpegConverter(srcFile, destFile, 3500*KILO, 720)
 	totalSize := uint64(0)
 	completed := false
 	for {
@@ -141,22 +141,21 @@ func reencodeVideo(src FileSystem, dest FileSystem, file string, config *Config)
 		case data, more := <-progress:
 			completed = !more
 			if more {
-				percent := int(math.Round(100 * float64(data.OutTime) / float64(data.Duration)))
-				if percent < 1 {
-					percent = 1
+				percent := float64(data.OutTime) / float64(data.Duration)
+				if percent < .01 {
+					percent = .01
 				}
-				bar := strings.Repeat("#", percent/2)
 				remaining := time.Duration((float64(data.Elapsed) / float64(data.OutTime+time.Second)) * float64(data.Duration-data.OutTime))
-				fmt.Printf("\r[%-50s]%3d%% at %sx, %s remaining %s", bar, percent, data.Speed,
-					remaining.Round(time.Second).String(), strings.Repeat(" ", 10))
+				logger.Progress(percent, " at ", data.Speed+"x ", remaining.Round(time.Second).String(), " remaining")
+
 				if totalSize < data.TotalSize {
 					totalSize = data.TotalSize
 				}
 			} else {
-				log.Println(" Completed", humanize.Bytes(totalSize))
+				logger.LogInfo("Encoding completed: ", humanize.Bytes(totalSize))
 			}
 		case err = <-msg:
-			log.Println(err)
+			logger.LogWarning(err)
 			if err != nil {
 				return destFile, totalSize, err
 			}
@@ -169,13 +168,13 @@ func reencodeVideo(src FileSystem, dest FileSystem, file string, config *Config)
 	}
 
 	if isSrcCopy {
-		log.Println("Removing src", strings.Repeat(" ", 40))
+		logger.LogVerbose("Removing src", srcFile.GetAbsolutePath())
 		if err := srcFile.Remove(); err != nil {
-			log.Println("error removing temp file: ", err)
+			logger.LogWarning("error removing temp file: ", err)
 		}
 	}
 	if totalSize == 0 {
-		log.Println(errors.New("file has 0 bytes"))
+		logger.LogWarning(errors.New("file has 0 bytes"))
 		return destFile, 0, err
 	}
 
@@ -189,7 +188,7 @@ func ifItFitsItSits(tmpFile File, dest FileSystem, remainingBytes uint64) (bool,
 		_, err = tmpFile.MoveTo(dest)
 	} else if dest.IsLocal() && tmpFile.GetSize() > remainingBytes {
 		if err = tmpFile.Remove(); err != nil {
-			log.Println("error removing dest file", err)
+			logger.LogWarning("error removing dest file: ", err)
 		}
 	} else if tmpFile.GetSize() > remainingBytes {
 		return false, err
@@ -203,7 +202,7 @@ func removeLast(bytes uint64, dest FileSystem, items []PlaylistItem, existing ma
 		key := items[i].Path
 		if existing[key] != 0 {
 			if err := dest.Remove(key); err != nil {
-				log.Println("error removing " + key + ": " + err.Error())
+				logger.LogWarning("error removing ", key, ": ", err.Error())
 			} else {
 				bytes -= existing[key]
 				removed += existing[key]
@@ -231,7 +230,7 @@ func getOrCopyLocalFile(f File, tempDir string) (File, bool, error) {
 	if f.IsLocal() {
 		return f, false, nil
 	}
-	log.Println("Copying to temp directory...")
+	logger.LogInfo("Copying to temp directory...")
 	tmpFolder := NewLocalFileSystem(tempDir)
 	err := tmpFolder.Mkdir(path.Dir(f.GetRelativePath()))
 	if err == nil {

@@ -5,7 +5,7 @@ import (
 	"github.com/dustin/go-humanize"
 	"io"
 	iofs "io/fs"
-	"log"
+	"plex-go-sync/internal/logger"
 	"strings"
 	"time"
 )
@@ -18,11 +18,17 @@ func cleanFiles(remove removeFS, fs iofs.FS, lookup map[string]bool) (map[string
 			return nil
 		}
 		key := path
+		size := uint64(1) // skip this check if we can't look up size
+		fi, err := info.Info()
+		if err == nil {
+			size = uint64(fi.Size())
+		}
+
 		split := strings.Split(path, ".")
-		if len(split) > 1 {
+		if len(split) > 1 && split[len(split)-1] == "mp4" {
 			key = strings.Join(split[:len(split)-1], ".")
 		}
-		if lookup == nil || lookup[key] == true {
+		if (lookup == nil || lookup[key] == true) && size > 0 {
 			detail, err := info.Info()
 			if err != nil {
 				return err
@@ -33,9 +39,9 @@ func cleanFiles(remove removeFS, fs iofs.FS, lookup map[string]bool) (map[string
 		}
 
 		if err = remove.Remove(path); err != nil {
-			log.Println("Removing: ", path, err.Error())
+			logger.LogInfo("Removing: ", path, err.Error())
 		} else {
-			log.Println("Removing: ", path)
+			logger.LogInfo("Removing: ", path, humanize.Bytes(size))
 		}
 		return nil
 	})
@@ -49,8 +55,8 @@ func cleanFiles(remove removeFS, fs iofs.FS, lookup map[string]bool) (map[string
 func copyFile(from File, to io.ReaderFrom, toPath string) (uint64, error) {
 	pReader, pWriter := io.Pipe()
 	size := from.GetSize()
-	log.Printf("Copying %s \n", from.GetAbsolutePath())
-	log.Printf("     to %s\n", toPath)
+	logger.LogInfof("Copying %s \n", from.GetAbsolutePath())
+	logger.LogInfof("     to %s \n", toPath)
 	if size == 0 {
 		return 0, fmt.Errorf("file is empty: %s", from.GetAbsolutePath())
 	}
@@ -72,9 +78,8 @@ func copyFile(from File, to io.ReaderFrom, toPath string) (uint64, error) {
 			if n != 0 {
 				currentSize += uint64(n)
 				progress := float64(currentSize) / float64(size)
-				bar := strings.Repeat("#", int(progress*50))
 				remaining := time.Duration((float64(time.Since(start)) / float64(currentSize)) * float64(size-currentSize))
-				fmt.Printf("\r[%-50s]%3d%% %s copied, %s remaining         ", bar, int(progress*100), humanize.Bytes(currentSize), remaining.Round(time.Second).String())
+				logger.Progress(progress, humanize.Bytes(currentSize), " copied, ", remaining.Round(time.Second).String(), " remaining")
 				pWriter.Write(buff[:n])
 			}
 			if err != nil {

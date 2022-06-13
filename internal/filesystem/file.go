@@ -2,8 +2,8 @@ package filesystem
 
 import (
 	"io"
-	"log"
 	"path"
+	"plex-go-sync/internal/logger"
 )
 
 type File interface {
@@ -31,12 +31,12 @@ func (f *FileImpl) CopyFrom(src FileSystem) (uint64, error) {
 	return size, err
 }
 func (f *FileImpl) CopyTo(dest FileSystem) (File, error) {
-	size, err := dest.DownloadFile(f.FileSystem, f.Path)
 	destFile := &FileImpl{
 		FileSystem: dest,
 		Path:       f.Path,
-		CachedSize: size,
 	}
+	size, err := destFile.CopyFrom(f.FileSystem)
+	destFile.CachedSize = size
 	return destFile, err
 }
 func (f *FileImpl) GetFileSystem() FileSystem {
@@ -62,10 +62,10 @@ func (f *FileImpl) IsLocal() bool {
 	return f.FileSystem.IsLocal()
 }
 func (f *FileImpl) Remove() error {
-	log.Println("Removing file", f.GetAbsolutePath())
 	return f.FileSystem.Remove(f.Path)
 }
 func (f *FileImpl) MoveFrom(src FileSystem) (uint64, error) {
+	logger.LogVerbose("Moving file ", path.Join(src.GetPath(), f.Path), " to ", f.FileSystem.GetPath())
 	size, err := f.FileSystem.DownloadFile(src, f.Path)
 	f.CachedSize = size
 	if err != nil {
@@ -77,16 +77,11 @@ func (f *FileImpl) MoveFrom(src FileSystem) (uint64, error) {
 	return size, nil
 }
 func (f *FileImpl) MoveTo(dest FileSystem) (File, error) {
-	log.Println("Moving file", f.GetAbsolutePath(), "to", dest.GetPath())
-
 	destFile := &FileImpl{
 		FileSystem: dest,
 		Path:       f.Path,
 	}
 	size, err := destFile.MoveFrom(f.FileSystem)
 	destFile.CachedSize = size
-	if err != nil {
-		return destFile, err
-	}
-	return destFile, nil
+	return destFile, err
 }

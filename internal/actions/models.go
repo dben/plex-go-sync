@@ -41,6 +41,11 @@ func (p *Playlist) GetSize() uint64 {
 	return p.Size
 }
 
+func (p *Playlist) GetTotalSize() uint64 {
+	size, _ := humanize.ParseBytes(p.RawSize)
+	return size
+}
+
 type PlaylistItem struct {
 	Path string `json:"path"`
 }

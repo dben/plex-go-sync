@@ -2,9 +2,9 @@ package filesystem
 
 import (
 	"io"
-	"log"
 	"os"
 	"path"
+	"plex-go-sync/internal/logger"
 	"strings"
 )
 
@@ -16,13 +16,14 @@ func NewLocalFileSystem(dir string) FileSystem {
 	return &LocalFileSystem{Path: dir}
 }
 func (f *LocalFileSystem) Clean(base string, lookup map[string]bool) (map[string]uint64, uint64, error) {
-	log.Println("Cleaning ", base)
+	logger.LogInfo("Cleaning ", base)
 	dir := path.Join(f.Path, strings.TrimPrefix(base, "/"))
 	return cleanFiles(&osImpl{}, os.DirFS(dir), lookup)
 }
 
 func (f *LocalFileSystem) DownloadFile(fs FileSystem, filename string) (uint64, error) {
 	absPath := path.Join(f.Path, strings.TrimPrefix(filename, "/"))
+	logger.LogVerbose("Copying file from ", fs.GetPath(), " to ", absPath)
 
 	if stat, err := os.Stat(absPath); err == nil {
 		return uint64(stat.Size()), nil
@@ -45,9 +46,10 @@ func (f *LocalFileSystem) GetFile(filename string) File {
 }
 
 func (f *LocalFileSystem) ReadFile(filename string) (io.Reader, func(), error) {
+	logger.LogVerbose("Reading file", filename)
 	file, err := os.Open(path.Clean(path.Join(f.Path, strings.TrimPrefix(filename, "/"))))
 	if err != nil {
-		log.Println("Error opening file: ", f.Path, filename)
+		logger.LogInfo("Error opening file: ", f.Path, filename)
 	}
 	return file, func() { _ = file.Close() }, err
 }
@@ -59,10 +61,10 @@ func (f *LocalFileSystem) GetPath() string {
 func (f *LocalFileSystem) GetSize(filename string) uint64 {
 	stat, err := os.Stat(path.Join(f.Path, strings.TrimPrefix(filename, "/")))
 	if err != nil {
-		log.Println("Error getting size of file: ", f.Path, filename, err.Error())
+		logger.LogErrorf("Error getting size of file (%s/%s): %s\n", f.Path, filename, err.Error())
 		return 0
 	}
-	log.Println("Size of file: ", f.Path, filename, stat.Size())
+	logger.LogVerbosef("Size of file (%s/%s): %s\n", f.Path, filename, stat.Size())
 
 	return uint64(stat.Size())
 }
@@ -72,14 +74,19 @@ func (f *LocalFileSystem) IsLocal() bool {
 }
 
 func (f *LocalFileSystem) Mkdir(dir string) error {
-	return os.MkdirAll(path.Join(f.Path, strings.TrimPrefix(dir, "/")), 0755)
+	dir = path.Clean(path.Join(f.Path, strings.TrimPrefix(dir, "/")))
+	logger.LogVerbose("Creating directory ", dir)
+	return os.MkdirAll(dir, 0755)
 }
 
 func (f *LocalFileSystem) RemoveAll(dir string) error {
-	return os.RemoveAll(path.Join(f.Path, strings.TrimPrefix(dir, "/")))
+	dir = path.Clean(path.Join(f.Path, strings.TrimPrefix(dir, "/")))
+	logger.LogVerbose("Removing directory ", dir)
+	return os.RemoveAll(dir)
 }
 
 func (f *LocalFileSystem) Remove(dir string) error {
-	log.Println(f.Path, dir)
-	return os.Remove(path.Clean(path.Join(f.Path, strings.TrimPrefix(dir, "/"))))
+	dir = path.Clean(path.Join(f.Path, strings.TrimPrefix(dir, "/")))
+	logger.LogVerbose("Removing file ", dir)
+	return os.Remove(dir)
 }

@@ -2,7 +2,7 @@ package filesystem
 
 import (
 	"io"
-	"log"
+	"plex-go-sync/internal/logger"
 	"strings"
 )
 
@@ -21,7 +21,7 @@ type FileSystem interface {
 
 func NewFileSystem(base string) FileSystem {
 	if base == "" {
-		log.Println("base is empty")
+		logger.LogError("base is empty")
 		return nil
 	}
 	if strings.HasPrefix(base, "smb://") || strings.HasPrefix(base, "//") {

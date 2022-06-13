@@ -3,9 +3,9 @@ package main
 import (
 	_ "fmt"
 	"github.com/urfave/cli"
-	"log"
 	"os"
 	"plex-go-sync/internal/actions"
+	"plex-go-sync/internal/logger"
 )
 
 func main() {
@@ -13,7 +13,6 @@ func main() {
 	app.Name = "plex-go-sync"
 	app.Usage = "Sync Plex Libraries"
 	app.Version = "0.0.1"
-	log.SetFlags(log.Ltime | log.Lshortfile)
 
 	app.Commands = []cli.Command{
 		{
@@ -42,6 +41,10 @@ func main() {
 				cli.StringFlag{
 					Name:  "destination-server, d",
 					Usage: "destination server address",
+				},
+				cli.StringFlag{
+					Name:  "loglevel",
+					Usage: "one of VERBOSE, INFO, WARN, ERROR",
 				},
 			},
 		},
@@ -84,6 +87,10 @@ func main() {
 					Name:  "destination, dest",
 					Usage: "destination path",
 				},
+				cli.StringFlag{
+					Name:  "loglevel",
+					Usage: "one of VERBOSE, INFO, WARN, ERROR",
+				},
 			},
 		},
 		{
@@ -117,11 +124,15 @@ func main() {
 					Name:  "destination, dest",
 					Usage: "destination path",
 				},
+				cli.StringFlag{
+					Name:  "loglevel",
+					Usage: "one of VERBOSE, INFO, WARN, ERROR",
+				},
 			},
 		},
 	}
 
 	if err := app.Run(os.Args); err != nil {
-		log.Println(err)
+		logger.LogError(err)
 	}
 }

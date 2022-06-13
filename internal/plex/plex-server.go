@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"github.com/jrudio/go-plex-client"
-	"log"
 	"net/http"
 	"net/url"
+	"plex-go-sync/internal/logger"
 	"strconv"
 	"strings"
 	"time"
@@ -85,7 +85,7 @@ func (p *Server) RefreshLibraries() chan string {
 				}
 				for _, library := range libraries.MediaContainer.Directory {
 					if libMap[library.Key] && !library.Refreshing {
-						log.Println("Library", library.Title, "is done refreshing")
+						logger.LogInfo("Library ", library.Title, " is done refreshing")
 						results <- library.Key
 					}
 					libMap[library.Key] = library.Refreshing
@@ -106,7 +106,7 @@ func (p *Server) RefreshLibraries() chan string {
 func (p *Server) http(verb string, query string) (*http.Response, error) {
 	client := p.HTTPClient
 
-	log.Println(verb, query)
+	logger.LogVerbose(verb, query)
 	req, reqErr := http.NewRequest(verb, query, nil)
 
 	if reqErr != nil {
@@ -129,20 +129,6 @@ func (p *Server) http(verb string, query string) (*http.Response, error) {
 	}
 
 	resp, err := client.Do(req)
-
-	//if resp.Body != nil {
-	//	//goland:noinspection GoUnhandledErrorResult
-	//	defer resp.Body.Close()
-	//
-	//	bytes, err := io.ReadAll(resp.Body)
-	//	if err != nil {
-	//		return &http.Response{}, err
-	//	}
-	//
-	//	log.Println(string(bytes))
-	//
-	//	resp.Body = io.NopCloser(strings.NewReader(string(bytes)))
-	//}
 
 	if err != nil {
 		return &http.Response{}, err
