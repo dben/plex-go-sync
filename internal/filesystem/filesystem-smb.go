@@ -2,7 +2,7 @@ package filesystem
 
 import (
 	"errors"
-	"fmt"
+	"github.com/dustin/go-humanize"
 	"github.com/hirochachacha/go-smb2"
 	"io"
 	"net"
@@ -42,10 +42,10 @@ func NewSmbFileSystem(dir string) FileSystem {
 	}
 	return &SmbFileSystem{Path: dir, Host: host, Username: username, Password: password}
 }
+
 func (f *SmbFileSystem) Clean(base string, lookup map[string]bool) (map[string]uint64, uint64, error) {
 	logger.LogInfo("Cleaning ", base)
-	share, err, cleanup := f.smbMount(base)
-	defer cleanup()
+	share, _, err := f.smbMount(base)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -53,16 +53,13 @@ func (f *SmbFileSystem) Clean(base string, lookup map[string]bool) (map[string]u
 	return cleanFiles(share, fs, lookup)
 }
 
-func (f *SmbFileSystem) DownloadFile(fs FileSystem, filename string) (uint64, error) {
-	logger.LogVerbose("Copying file from ", fs.GetPath(), " to ", f.GetPath()+strings.TrimPrefix(filename, "/"))
-	base, filename := f.splitPath(filename)
-	if filename == "" {
-		return 0, errors.New("invalid path")
-	}
-	share, err, cleanup := f.smbMount(base)
-	defer cleanup()
+func (f *SmbFileSystem) DownloadFile(fs FileSystem, filepath string, id string) (uint64, error) {
+	share, filename, err := f.smbMount(filepath)
 	if err != nil {
 		return 0, err
+	}
+	if filename == "" {
+		return 0, errors.New("invalid path")
 	}
 	err = share.MkdirAll(path.Dir(filename), 0755)
 	if err != nil {
@@ -78,39 +75,36 @@ func (f *SmbFileSystem) DownloadFile(fs FileSystem, filename string) (uint64, er
 		return 0, err
 	}
 
-	return copyFile(fs.GetFile(path.Join(base, filename)), file, path.Join(f.GetPath(), base, filename))
+	return copyFile(fs.GetFile(filepath), file, path.Join(f.GetPath(), filepath), id)
 }
 
-func (f *SmbFileSystem) GetFile(filename string) File {
-	return &FileImpl{Path: strings.TrimPrefix(filename, "/"), FileSystem: f}
+func (f *SmbFileSystem) GetFile(filepath string) File {
+	return &FileImpl{Path: strings.TrimPrefix(filepath, "/"), FileSystem: f}
 }
 
-func (f *SmbFileSystem) ReadFile(filename string) (io.Reader, func(), error) {
-	base, filename := f.splitPath(filename)
+func (f *SmbFileSystem) ReadFile(filepath string) (io.Reader, func(), error) {
+	share, filename, err := f.smbMount(filepath)
+	if err != nil {
+		return nil, func() {}, err
+	}
 	if filename == "" {
 		return nil, func() {}, errors.New("invalid path")
 	}
-	share, err, cleanup := f.smbMount(base)
-	if err != nil {
-		return nil, cleanup, err
-	}
 	logger.LogVerbose("Reading file ", filename)
 	file, err := share.Open(filename)
-	return file, func() { _ = file.Close(); cleanup() }, err
+	return file, func() { _ = file.Close() }, err
 }
 
 func (f *SmbFileSystem) GetPath() string {
 	return "//" + f.Host + "/"
 }
 
-func (f *SmbFileSystem) GetSize(filename string) uint64 {
-	base, filename := f.splitPath(filename)
-	if filename == "" {
+func (f *SmbFileSystem) GetSize(filepath string) uint64 {
+	share, filename, err := f.smbMount(filepath)
+	if err != nil {
 		return 0
 	}
-	share, err, cleanup := f.smbMount(base)
-	defer cleanup()
-	if err != nil {
+	if filename == "" {
 		return 0
 	}
 
@@ -119,7 +113,7 @@ func (f *SmbFileSystem) GetSize(filename string) uint64 {
 		return 0
 	}
 	stat, err := file.Stat()
-	logger.LogVerbosef("Size of file (%s%s): %s\n", f.Path, filename, stat.Size())
+	logger.LogVerbosef("Size of file (%s%s): %s\n", f.Path, filename, humanize.Bytes(uint64(stat.Size())))
 
 	return uint64(stat.Size())
 }
@@ -128,91 +122,121 @@ func (f *SmbFileSystem) IsLocal() bool {
 	return false
 }
 func (f *SmbFileSystem) Mkdir(dir string) error {
-	base, filename := f.splitPath(dir)
-	if filename == "" {
-		return errors.New("invalid path")
-	}
-	share, err, cleanup := f.smbMount(base)
-	defer cleanup()
+	share, filename, err := f.smbMount(dir)
 	if err != nil {
 		return err
 	}
+	if filename == "" {
+		return errors.New("invalid path")
+	}
 
-	logger.LogVerbose("Creating directory ", path.Join(f.GetPath(), base, dir))
+	logger.LogVerbose("Creating directory ", path.Join(f.GetPath(), dir))
 
 	return share.MkdirAll(dir, 0755)
 }
 
 func (f *SmbFileSystem) RemoveAll(dir string) error {
-	base, filename := f.splitPath(dir)
-	if filename == "" {
-		return errors.New("invalid path")
-	}
-	share, err, cleanup := f.smbMount(base)
-	defer cleanup()
+	share, filename, err := f.smbMount(dir)
 	if err != nil {
 		return err
 	}
+	if filename == "" {
+		return errors.New("invalid path")
+	}
 
-	logger.LogVerbose("Removing directory ", path.Join(f.GetPath(), base, dir))
+	logger.LogVerbose("Removing directory ", path.Join(f.GetPath(), dir))
 	return share.RemoveAll(dir)
 }
 
-func (f *SmbFileSystem) Remove(filename string) error {
-	base, filename := f.splitPath(filename)
-	if filename == "" {
-		return errors.New("invalid path")
-	}
-	share, err, cleanup := f.smbMount(base)
-	defer cleanup()
+func (f *SmbFileSystem) Remove(filepath string) error {
+	share, filename, err := f.smbMount(filepath)
 	if err != nil {
 		return err
 	}
+	if filename == "" {
+		return errors.New("invalid path")
+	}
 
-	logger.LogVerbose("Removing file ", path.Join(f.GetPath(), base, filename))
+	logger.LogVerbose("Removing file ", path.Join(f.GetPath(), filepath))
 	return share.Remove(strings.TrimPrefix(filename, "/"))
 }
 
-func (f *SmbFileSystem) smbMount(path string) (*smb2.Share, error, func()) {
-	addr, _, _ := strings.Cut(f.Host, ":")
-	if logger.LogLevel != "WARN" && logger.LogLevel != "ERROR" {
-		fmt.Printf("Mounting //%s/%s\r", addr, path)
-	}
-	if logger.LogLevel == "VERBOSE" {
-		fmt.Println()
-	}
+type smbConnection struct {
+	conn    net.Conn
+	dialer  *smb2.Dialer
+	session *smb2.Session
+	shares  map[string]*smb2.Share
+}
 
-	conn, err := net.Dial("tcp", f.Host)
+var smbConnections = make(map[string]*smbConnection)
+
+func NewSmbConnection(host string, username string, password string) (*smbConnection, error) {
+	c := &smbConnection{}
+	var err error
+	c.conn, err = net.Dial("tcp", host)
 	if err != nil {
-		return nil, err, func() { _ = conn.Close() }
+		_ = c.conn.Close()
+		return nil, err
 	}
 
-	d := &smb2.Dialer{
+	c.dialer = &smb2.Dialer{
 		Initiator: &smb2.NTLMInitiator{
-			User:     f.Username,
-			Password: f.Password,
+			User:     username,
+			Password: password,
 		},
 	}
 
-	c, err := d.Dial(conn)
-	cleanup := func() {
-		_ = c.Logoff()
-		_ = conn.Close()
+	c.session, err = c.dialer.Dial(c.conn)
+	if err != nil {
+		_ = c.session.Logoff()
+		_ = c.conn.Close()
+		return nil, err
 	}
 
-	if err != nil {
-		return nil, err, cleanup
-	}
-	s, err := c.Mount("//" + addr + "/" + path)
-	return s, err, cleanup
+	c.shares = make(map[string]*smb2.Share)
+	return c, nil
 }
 
-func (f *SmbFileSystem) splitPath(path string) (string, string) {
-	path = strings.TrimPrefix(path, "/")
-	base, dir, ok := strings.Cut(path, "/")
-	if !ok {
-		logger.LogError("Invalid path: ", path)
-		return base, ""
+func CloseAllSmbConnections() {
+	for _, c := range smbConnections {
+		_ = c.session.Logoff()
+		_ = c.conn.Close()
 	}
-	return base, dir
+}
+
+func (f *SmbFileSystem) smbMount(filepath string) (*smb2.Share, string, error) {
+	base, filename, _ := strings.Cut(strings.TrimPrefix(filepath, "/"), "/")
+	addr, _, _ := strings.Cut(f.Host, ":")
+	var err error
+	var conn = smbConnections[addr]
+	if conn != nil {
+		_, err = conn.session.ListSharenames()
+	}
+	if err != nil {
+		_ = conn.session.Logoff()
+		_ = conn.conn.Close()
+	}
+	if smbConnections[addr] == nil || err != nil {
+		logger.LogInfo("Mounting //", addr, "/", base)
+		conn, err = NewSmbConnection(f.Host, f.Username, f.Password)
+		if err != nil {
+			return nil, filename, err
+		}
+		smbConnections[addr] = conn
+	}
+
+	if conn.shares[base] != nil {
+		_, err = conn.shares[base].Stat(".")
+	}
+	if err != nil {
+		_ = conn.shares[base].Umount()
+	}
+	if conn.shares[base] == nil || err != nil {
+		conn.shares[base], err = conn.session.Mount("//" + addr + "/" + base)
+		if err != nil {
+			_ = conn.shares[base].Umount()
+			return nil, filename, err
+		}
+	}
+	return conn.shares[base], filename, nil
 }

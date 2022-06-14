@@ -60,6 +60,14 @@ func (p *Server) GetPlaylistsByName(title string) (plex.SearchResults, error) {
 	return results, nil
 }
 
+func (p *Server) RefreshLibrary(id int, path string) error {
+	query := fmt.Sprintf("%s/library/sections/%d/refresh?path=%s", p.URL, id, url.QueryEscape(path))
+	if _, err := p.http("GET", query); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (p *Server) RefreshLibraries() chan string {
 	results := make(chan string)
 	query := fmt.Sprintf("%s/library/sections/all/refresh", p.URL)

@@ -115,7 +115,7 @@ func GetPlaylistItems(name string, server string, token string) ([]PlaylistItem,
 	return results, hashmap, err
 }
 
-func reencodeVideo(src FileSystem, dest FileSystem, file string, config *Config) (File, uint64, error) {
+func reencodeVideo(id string, src FileSystem, dest FileSystem, file string, config *Config) (File, uint64, error) {
 	slice := strings.Split(file, ".")
 	outFile := strings.Join(slice[:len(slice)-1], ".") + ".mp4"
 
@@ -124,7 +124,7 @@ func reencodeVideo(src FileSystem, dest FileSystem, file string, config *Config)
 		logger.LogWarning("error getting dest file: ", err)
 		return destFile, 0, err
 	}
-	srcFile, isSrcCopy, err := getOrCopyLocalFile(src.GetFile(file), path.Join(config.TempDir, "src"))
+	srcFile, isSrcCopy, err := getOrCopyLocalFile(id, src.GetFile(file), path.Join(config.TempDir, "src"))
 	if err != nil {
 		logger.LogWarning("error getting src file: ", err)
 		return destFile, 0, err
@@ -146,12 +146,13 @@ func reencodeVideo(src FileSystem, dest FileSystem, file string, config *Config)
 					percent = .01
 				}
 				remaining := time.Duration((float64(data.Elapsed) / float64(data.OutTime+time.Second)) * float64(data.Duration-data.OutTime))
-				logger.Progress(percent, " at ", data.Speed+"x ", remaining.Round(time.Second).String(), " remaining")
+				logger.Progress(id+outFile, percent, " at ", data.Speed+"x ", remaining.Round(time.Second).String(), " remaining")
 
 				if totalSize < data.TotalSize {
 					totalSize = data.TotalSize
 				}
 			} else {
+				logger.ProgressClear(id + outFile)
 				logger.LogInfo("Encoding completed: ", humanize.Bytes(totalSize))
 			}
 		case err = <-msg:
@@ -168,13 +169,17 @@ func reencodeVideo(src FileSystem, dest FileSystem, file string, config *Config)
 	}
 
 	if isSrcCopy {
-		logger.LogVerbose("Removing src", srcFile.GetAbsolutePath())
-		if err := srcFile.Remove(); err != nil {
-			logger.LogWarning("error removing temp file: ", err)
-		}
+		go func() {
+			time.Sleep(time.Minute)
+			logger.LogVerbose("Removing src", srcFile.GetAbsolutePath())
+			if err := srcFile.Remove(); err != nil {
+				logger.LogWarning("error removing temp file: ", err)
+			}
+		}()
 	}
 	if totalSize == 0 {
-		logger.LogWarning(errors.New("file has 0 bytes"))
+		err = errors.New("file has 0 bytes")
+		logger.LogWarning(err)
 		return destFile, 0, err
 	}
 
@@ -182,10 +187,10 @@ func reencodeVideo(src FileSystem, dest FileSystem, file string, config *Config)
 
 }
 
-func ifItFitsItSits(tmpFile File, dest FileSystem, remainingBytes uint64) (bool, error) {
+func ifItFitsItSits(id string, tmpFile File, dest FileSystem, remainingBytes uint64) (bool, error) {
 	var err error
 	if !dest.IsLocal() && tmpFile.GetSize() <= remainingBytes {
-		_, err = tmpFile.MoveTo(dest)
+		_, err = tmpFile.MoveTo(dest, id)
 	} else if dest.IsLocal() && tmpFile.GetSize() > remainingBytes {
 		if err = tmpFile.Remove(); err != nil {
 			logger.LogWarning("error removing dest file: ", err)
@@ -226,7 +231,7 @@ func getLocalFile(f File, tempDir string) (File, error) {
 
 }
 
-func getOrCopyLocalFile(f File, tempDir string) (File, bool, error) {
+func getOrCopyLocalFile(id string, f File, tempDir string) (File, bool, error) {
 	if f.IsLocal() {
 		return f, false, nil
 	}
@@ -234,7 +239,7 @@ func getOrCopyLocalFile(f File, tempDir string) (File, bool, error) {
 	tmpFolder := NewLocalFileSystem(tempDir)
 	err := tmpFolder.Mkdir(path.Dir(f.GetRelativePath()))
 	if err == nil {
-		_, err = f.CopyTo(tmpFolder)
+		_, err = f.CopyTo(tmpFolder, id)
 	}
 	return tmpFolder.GetFile(f.GetRelativePath()), true, err
 }

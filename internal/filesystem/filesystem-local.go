@@ -1,6 +1,7 @@
 package filesystem
 
 import (
+	"github.com/dustin/go-humanize"
 	"io"
 	"os"
 	"path"
@@ -21,9 +22,8 @@ func (f *LocalFileSystem) Clean(base string, lookup map[string]bool) (map[string
 	return cleanFiles(&osImpl{}, os.DirFS(dir), lookup)
 }
 
-func (f *LocalFileSystem) DownloadFile(fs FileSystem, filename string) (uint64, error) {
-	absPath := path.Join(f.Path, strings.TrimPrefix(filename, "/"))
-	logger.LogVerbose("Copying file from ", fs.GetPath(), " to ", absPath)
+func (f *LocalFileSystem) DownloadFile(fs FileSystem, filename string, id string) (uint64, error) {
+	absPath := path.Clean(path.Join(f.Path, strings.TrimPrefix(filename, "/")))
 
 	if stat, err := os.Stat(absPath); err == nil {
 		return uint64(stat.Size()), nil
@@ -32,13 +32,22 @@ func (f *LocalFileSystem) DownloadFile(fs FileSystem, filename string) (uint64, 
 	if err := os.MkdirAll(path.Dir(absPath), 0755); err != nil {
 		return 0, err
 	}
-	file, err := os.Create(path.Clean(absPath))
+	file, err := os.Create(absPath)
+	if err != nil {
+		return 0, err
+	}
+	_, err = file.Stat()
 	if err != nil {
 		return 0, err
 	}
 
-	return copyFile(fs.GetFile(filename), file, absPath)
+	size, err := copyFile(fs.GetFile(filename), file, absPath, id)
 
+	_, err2 := os.Stat(absPath)
+	if err2 != nil {
+		return 0, err2
+	}
+	return size, err
 }
 
 func (f *LocalFileSystem) GetFile(filename string) File {
@@ -61,10 +70,10 @@ func (f *LocalFileSystem) GetPath() string {
 func (f *LocalFileSystem) GetSize(filename string) uint64 {
 	stat, err := os.Stat(path.Join(f.Path, strings.TrimPrefix(filename, "/")))
 	if err != nil {
-		logger.LogErrorf("Error getting size of file (%s/%s): %s\n", f.Path, filename, err.Error())
+		logger.LogWarningf("Error getting size of file (%s/%s): %s\n", f.Path, filename, err.Error())
 		return 0
 	}
-	logger.LogVerbosef("Size of file (%s/%s): %s\n", f.Path, filename, stat.Size())
+	logger.LogVerbosef("Size of file (%s/%s): %s\n", f.Path, filename, humanize.Bytes(uint64(stat.Size())))
 
 	return uint64(stat.Size())
 }
@@ -82,7 +91,17 @@ func (f *LocalFileSystem) Mkdir(dir string) error {
 func (f *LocalFileSystem) RemoveAll(dir string) error {
 	dir = path.Clean(path.Join(f.Path, strings.TrimPrefix(dir, "/")))
 	logger.LogVerbose("Removing directory ", dir)
-	return os.RemoveAll(dir)
+	readDir, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, file := range readDir {
+		err := os.RemoveAll(path.Join(dir, file.Name()))
+		if err != nil {
+			logger.LogWarning("Error removing file", file.Name(), ": ", err.Error())
+		}
+	}
+	return nil
 }
 
 func (f *LocalFileSystem) Remove(dir string) error {

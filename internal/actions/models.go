@@ -17,10 +17,11 @@ type Config struct {
 }
 
 type Playlist struct {
-	Name    string         `json:"name"`
-	RawSize string         `json:"size"`
-	Size    uint64         `json:"bytes"`
-	Items   []PlaylistItem `json:"items"`
+	LibraryId int            `json:"library"`
+	Name      string         `json:"name"`
+	RawSize   string         `json:"size"`
+	Size      uint64         `json:"bytes"`
+	Items     []PlaylistItem `json:"items"`
 }
 
 func NewPlaylist(name string, rawSize string) *Playlist {

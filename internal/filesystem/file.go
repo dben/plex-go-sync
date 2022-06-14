@@ -7,10 +7,10 @@ import (
 )
 
 type File interface {
-	CopyFrom(fs FileSystem) (uint64, error)
-	CopyTo(fs FileSystem) (File, error)
-	MoveFrom(fs FileSystem) (uint64, error)
-	MoveTo(fs FileSystem) (File, error)
+	CopyFrom(fs FileSystem, id string) (uint64, error)
+	CopyTo(fs FileSystem, id string) (File, error)
+	MoveFrom(fs FileSystem, id string) (uint64, error)
+	MoveTo(fs FileSystem, id string) (File, error)
 	ReadFile() (io.Reader, func(), error)
 	GetRelativePath() string
 	GetAbsolutePath() string
@@ -25,17 +25,17 @@ type FileImpl struct {
 	CachedSize uint64
 }
 
-func (f *FileImpl) CopyFrom(src FileSystem) (uint64, error) {
-	size, err := f.FileSystem.DownloadFile(src, f.Path)
+func (f *FileImpl) CopyFrom(src FileSystem, id string) (uint64, error) {
+	size, err := f.FileSystem.DownloadFile(src, f.Path, id)
 	f.CachedSize = size
 	return size, err
 }
-func (f *FileImpl) CopyTo(dest FileSystem) (File, error) {
+func (f *FileImpl) CopyTo(dest FileSystem, id string) (File, error) {
 	destFile := &FileImpl{
 		FileSystem: dest,
 		Path:       f.Path,
 	}
-	size, err := destFile.CopyFrom(f.FileSystem)
+	size, err := destFile.CopyFrom(f.FileSystem, id)
 	destFile.CachedSize = size
 	return destFile, err
 }
@@ -64,9 +64,9 @@ func (f *FileImpl) IsLocal() bool {
 func (f *FileImpl) Remove() error {
 	return f.FileSystem.Remove(f.Path)
 }
-func (f *FileImpl) MoveFrom(src FileSystem) (uint64, error) {
+func (f *FileImpl) MoveFrom(src FileSystem, id string) (uint64, error) {
 	logger.LogVerbose("Moving file ", path.Join(src.GetPath(), f.Path), " to ", f.FileSystem.GetPath())
-	size, err := f.FileSystem.DownloadFile(src, f.Path)
+	size, err := f.FileSystem.DownloadFile(src, f.Path, id)
 	f.CachedSize = size
 	if err != nil {
 		return 0, err
@@ -76,12 +76,12 @@ func (f *FileImpl) MoveFrom(src FileSystem) (uint64, error) {
 	}
 	return size, nil
 }
-func (f *FileImpl) MoveTo(dest FileSystem) (File, error) {
+func (f *FileImpl) MoveTo(dest FileSystem, id string) (File, error) {
 	destFile := &FileImpl{
 		FileSystem: dest,
 		Path:       f.Path,
 	}
-	size, err := destFile.MoveFrom(f.FileSystem)
+	size, err := destFile.MoveFrom(f.FileSystem, id)
 	destFile.CachedSize = size
 	return destFile, err
 }

@@ -85,15 +85,10 @@ func FfmpegConverter(in filesystem.File, out filesystem.File, bitrateFilter uint
 
 			go func() {
 				defer close(msg)
-				if err != nil {
-					msg <- err
-				}
-
 				fmt.Println("Converting: ", in.GetAbsolutePath())
-
-				err = ffmpeg_go.Input(path.Clean(in.GetAbsolutePath())).
+				err := ffmpeg_go.Input(path.Clean(in.GetAbsolutePath())).
 					Output(path.Clean(out.GetAbsolutePath()), ffmpeg_go.KwArgs{
-						"vcodec": "copy", "acodec": "copy", "format": "mp4", "loglevel": "warning", "y": "",
+						"vcodec": "copy", "acodec": "copy", "format": "mp4", "loglevel": "error", "y": "",
 					}).
 					GlobalArgs("-progress", uri).
 					ErrorToStdOut().
@@ -104,7 +99,6 @@ func FfmpegConverter(in filesystem.File, out filesystem.File, bitrateFilter uint
 				}
 			}()
 		}
-
 	} else {
 
 		uri, socket = ffmpegProgressSock(duration)
@@ -119,7 +113,7 @@ func FfmpegConverter(in filesystem.File, out filesystem.File, bitrateFilter uint
 
 			err = ffmpeg_go.Input(path.Clean(in.GetAbsolutePath())).
 				Output(path.Clean(out.GetAbsolutePath()), ffmpeg_go.KwArgs{
-					"c:v": "libx264", "crf": "23", "s": "1280x720", "format": "mp4", "loglevel": "warning", "y": "",
+					"c:v": "libx264", "crf": "23", "s": "1280x720", "format": "mp4", "loglevel": "error", "y": "",
 				}).
 				GlobalArgs("-progress", uri).
 				ErrorToStdOut().
@@ -134,9 +128,9 @@ func FfmpegConverter(in filesystem.File, out filesystem.File, bitrateFilter uint
 	return socket, msg
 }
 
-func getProbeData(a string) (time.Duration, uint64, uint64, int, error) {
+func getProbeData(result string) (time.Duration, uint64, uint64, int, error) {
 	pd := probeData{}
-	err := json.Unmarshal([]byte(a), &pd)
+	err := json.Unmarshal([]byte(result), &pd)
 	if err != nil {
 		return 0, 0, 0, 0, err
 	}
@@ -210,7 +204,7 @@ func ffmpegProgressSock(duration time.Duration) (string, chan FfmpegProps) {
 			if m := OutTime.FindAllStringSubmatch(data, -1); len(m) > 0 && len(m[len(m)-1]) > 1 {
 				outTime, _ := strconv.ParseInt(m[len(m)-1][1], 10, 64)
 				props.OutTime = time.Duration(outTime * int64(time.Microsecond))
-				if props.OutTime == ot {
+				if props.OutTime == ot || props.OutTime == 0 {
 					continue
 				}
 				ot = props.OutTime
