@@ -9,6 +9,7 @@ import (
 	"path"
 	"plex-go-sync/internal/logger"
 	"strings"
+	"sync"
 )
 
 type SmbFileSystem struct {
@@ -17,6 +18,8 @@ type SmbFileSystem struct {
 	Username string
 	Password string
 }
+
+var mutex = &sync.Mutex{}
 
 func NewSmbFileSystem(dir string) FileSystem {
 	if strings.HasPrefix(dir, "//") {
@@ -61,8 +64,7 @@ func (f *SmbFileSystem) DownloadFile(fs FileSystem, filepath string, id string) 
 	if filename == "" {
 		return 0, errors.New("invalid path")
 	}
-	err = share.MkdirAll(path.Dir(filename), 0755)
-	if err != nil {
+	if err = share.MkdirAll(path.Dir(filename), 0755); err != nil {
 		return 0, err
 	}
 
@@ -78,21 +80,39 @@ func (f *SmbFileSystem) DownloadFile(fs FileSystem, filepath string, id string) 
 	return copyFile(fs.GetFile(filepath), file, path.Join(f.GetPath(), filepath), id)
 }
 
+func (f *SmbFileSystem) FileWriter(filepath string) (io.WriteCloser, error) {
+	share, filename, err := f.smbMount(filepath)
+	if err != nil {
+		return nil, err
+	}
+	if filename == "" {
+		return nil, errors.New("invalid path")
+	}
+
+	logger.LogVerbose("Creating directory ", path.Join(f.GetPath()+path.Dir(filepath)))
+	err = share.MkdirAll(path.Dir(filename), 0755)
+	if err != nil {
+		return nil, err
+	}
+	logger.LogVerbose(f.GetPath() + filepath)
+
+	return share.Create(filename)
+}
+
 func (f *SmbFileSystem) GetFile(filepath string) File {
 	return &FileImpl{Path: strings.TrimPrefix(filepath, "/"), FileSystem: f}
 }
 
-func (f *SmbFileSystem) ReadFile(filepath string) (io.Reader, func(), error) {
+func (f *SmbFileSystem) ReadFile(filepath string) (io.ReadCloser, error) {
 	share, filename, err := f.smbMount(filepath)
 	if err != nil {
-		return nil, func() {}, err
+		return nil, err
 	}
 	if filename == "" {
-		return nil, func() {}, errors.New("invalid path")
+		return nil, errors.New("invalid path")
 	}
-	logger.LogVerbose("Reading file ", filename)
-	file, err := share.Open(filename)
-	return file, func() { _ = file.Close() }, err
+	logger.LogVerbosef("Reading file (%s)\n", filename)
+	return share.Open(filename)
 }
 
 func (f *SmbFileSystem) GetPath() string {
@@ -158,7 +178,7 @@ func (f *SmbFileSystem) Remove(filepath string) error {
 	}
 
 	logger.LogVerbose("Removing file ", path.Join(f.GetPath(), filepath))
-	return share.Remove(strings.TrimPrefix(filename, "/"))
+	return share.Remove(filename)
 }
 
 type smbConnection struct {
@@ -205,6 +225,8 @@ func CloseAllSmbConnections() {
 }
 
 func (f *SmbFileSystem) smbMount(filepath string) (*smb2.Share, string, error) {
+	mutex.Lock()
+	defer mutex.Unlock()
 	base, filename, _ := strings.Cut(strings.TrimPrefix(filepath, "/"), "/")
 	addr, _, _ := strings.Cut(f.Host, ":")
 	var err error
@@ -215,6 +237,7 @@ func (f *SmbFileSystem) smbMount(filepath string) (*smb2.Share, string, error) {
 	if err != nil {
 		_ = conn.session.Logoff()
 		_ = conn.conn.Close()
+		smbConnections[addr] = nil
 	}
 	if smbConnections[addr] == nil || err != nil {
 		logger.LogInfo("Mounting //", addr, "/", base)

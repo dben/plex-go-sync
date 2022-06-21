@@ -15,7 +15,7 @@ const Green = "\033[0;32m"
 const Blue = "\033[0;34m"
 const Magenta = "\033[0;35m"
 const Red = "\033[0;31m"
-const DefaultColor = "\033[0m"
+const Reset = "\033[0m"
 
 var depth = 2
 var stdout = log.New(os.Stdout, "", 0)
@@ -49,10 +49,11 @@ func SetLogLevel(level string) {
 					split := strings.Split(s, "\n")
 					s = split[len(split)-1]
 					for _, line := range split[:len(split)-1] {
+						line = strings.TrimSpace(strings.ToValidUTF8(line, ""))
 						if line != "" {
 							if LogLevel != "WARN" && LogLevel != "ERROR" {
 								Cleanup()
-								fmt.Println(Magenta + line + DefaultColor)
+								fmt.Println(Magenta + line + Reset)
 							}
 						}
 					}
@@ -79,12 +80,12 @@ func LogInfo(v ...any) {
 func LogWarning(v ...any) {
 	if LogLevel != "ERROR" {
 		Cleanup()
-		_ = stdout.Output(depth, Yellow+fmt.Sprintln(v...)+DefaultColor)
+		_ = stdout.Output(depth, Yellow+fmt.Sprintln(v...)+Reset)
 	}
 }
 func LogError(v ...any) {
 	Cleanup()
-	_ = stderr.Output(depth, Red+fmt.Sprintln(v...)+DefaultColor)
+	_ = stderr.Output(depth, Red+fmt.Sprintln(v...)+Reset)
 }
 
 func LogVerbosef(format string, v ...any) {
@@ -102,21 +103,20 @@ func LogInfof(format string, v ...any) {
 func LogWarningf(format string, v ...any) {
 	if LogLevel != "ERROR" {
 		Cleanup()
-		_ = stdout.Output(depth, Yellow+fmt.Sprintf(format, v...)+DefaultColor)
+		_ = stdout.Output(depth, Yellow+fmt.Sprintf(format, v...)+Reset)
 	}
 }
 func LogErrorf(format string, v ...any) {
 	Cleanup()
-	_ = stderr.Output(depth, Red+fmt.Sprintf(format, v...)+DefaultColor)
-}
-func LogEphemeral(v ...any) {
-	Cleanup()
-	out := fmt.Sprint(v...) + "\r"
-	fmt.Print(out)
-	cleanup = strings.Repeat(" ", len(out)) + "\r"
+	_ = stderr.Output(depth, Red+fmt.Sprintf(format, v...)+Reset)
 }
 func LogPersistent(id string, v ...any) {
 	mutex.Lock()
+	defer mutex.Unlock()
+	if _, found := persistent[id]; len(v) == 0 && !found {
+		return
+	}
+
 	Cleanup()
 	if len(v) != 0 {
 		persistent[id] = strings.TrimSuffix(fmt.Sprint(v...), "\n")
@@ -144,12 +144,12 @@ func LogPersistent(id string, v ...any) {
 		fmt.Print("\033[F")
 		cleanup += "\033[F"
 	}
-	mutex.Unlock()
+
 }
 
 func Progress(id string, percent float64, v ...any) {
 	if LogLevel != "WARN" && LogLevel != "ERROR" {
-		LogPersistent(id, fmt.Sprintf(Blue+"[%-50s]"+DefaultColor+" %3d%% ", strings.Repeat("#", int(percent*50)), int(percent*100)), fmt.Sprint(v...))
+		LogPersistent(id, fmt.Sprintf(Blue+"[%-50s]"+Reset+" %3d%% ", strings.Repeat("#", int(percent*50)), int(percent*100)), fmt.Sprint(v...))
 	}
 }
 func ProgressClear(id string) {

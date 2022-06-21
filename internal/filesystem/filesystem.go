@@ -9,11 +9,12 @@ import (
 type FileSystem interface {
 	Clean(base string, lookup map[string]bool) (map[string]uint64, uint64, error)
 	DownloadFile(fs FileSystem, filename string, id string) (uint64, error)
+	FileWriter(filename string) (io.WriteCloser, error)
 	GetFile(filename string) File
 	GetPath() string
 	GetSize(filename string) uint64
 	IsLocal() bool
-	ReadFile(filename string) (io.Reader, func(), error)
+	ReadFile(filename string) (io.ReadCloser, error)
 	Remove(filename string) error
 	RemoveAll(dir string) error
 	Mkdir(dir string) error

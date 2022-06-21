@@ -11,7 +11,8 @@ type File interface {
 	CopyTo(fs FileSystem, id string) (File, error)
 	MoveFrom(fs FileSystem, id string) (uint64, error)
 	MoveTo(fs FileSystem, id string) (File, error)
-	ReadFile() (io.Reader, func(), error)
+	ReadFile() (io.ReadCloser, error)
+	FileWriter() (io.WriteCloser, error)
 	GetRelativePath() string
 	GetAbsolutePath() string
 	GetSize() uint64
@@ -42,8 +43,11 @@ func (f *FileImpl) CopyTo(dest FileSystem, id string) (File, error) {
 func (f *FileImpl) GetFileSystem() FileSystem {
 	return f.FileSystem
 }
-func (f *FileImpl) ReadFile() (io.Reader, func(), error) {
+func (f *FileImpl) ReadFile() (io.ReadCloser, error) {
 	return f.FileSystem.ReadFile(f.Path)
+}
+func (f *FileImpl) FileWriter() (io.WriteCloser, error) {
+	return f.FileSystem.FileWriter(f.Path)
 }
 func (f *FileImpl) GetRelativePath() string {
 	return f.Path

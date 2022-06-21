@@ -5,7 +5,6 @@ import (
 	"github.com/dustin/go-humanize"
 	"io"
 	iofs "io/fs"
-	"path"
 	"plex-go-sync/internal/logger"
 	"strings"
 	"time"
@@ -55,17 +54,15 @@ func cleanFiles(remove removeFS, fs iofs.FS, lookup map[string]bool) (map[string
 //goland:noinspection GoUnhandledErrorResult
 func copyFile(from File, to io.WriteCloser, toPath string, id string) (uint64, error) {
 	size := from.GetSize()
-	ext := path.Ext(toPath)
-	toPathColor := toPath[:len(toPath)-len(ext)] + logger.Green + ext + logger.DefaultColor
 	logger.LogInfof("Copying %s \n", from.GetAbsolutePath())
-	logger.LogInfof("     to %s \n", toPathColor)
+	logger.LogInfof("     to %s \n", toPath)
 	if size == 0 {
 		return 0, fmt.Errorf("file is empty: %s", from.GetAbsolutePath())
 	}
 
 	start := time.Now()
-	reader, cleanup, err := from.ReadFile()
-	defer cleanup()
+	reader, err := from.ReadFile()
+	defer reader.Close()
 
 	if err != nil {
 		logger.LogError(err.Error())
@@ -96,6 +93,6 @@ func copyFile(from File, to io.WriteCloser, toPath string, id string) (uint64, e
 		}
 	}
 
-	logger.LogVerbose("Finished copying ", humanize.Bytes(currentSize), " to ", toPathColor)
+	logger.LogVerbose(logger.Green, "Finished copying ", humanize.Bytes(currentSize), " to ", toPath, logger.Reset)
 	return currentSize, err
 }

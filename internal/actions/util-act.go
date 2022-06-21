@@ -3,8 +3,10 @@ package actions
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/dustin/go-humanize"
-	"github.com/urfave/cli"
+	ffmpeg_go "github.com/u2takey/ffmpeg-go"
+	"github.com/urfave/cli/v2"
 	"math/rand"
 	"os"
 	"path"
@@ -78,12 +80,18 @@ func GetPlaylistItems(name string, server string, token string) ([]PlaylistItem,
 		return nil, nil, err
 	}
 
+	parents := make(map[string]bool)
+	hashmap := make(map[string]bool)
+
 	for _, item := range items.MediaContainer.Metadata {
 
 		// find 720p if exists
 		bestMedia := item.Media[0]
 		for _, media := range item.Media {
-			if media.Width >= 720 && (bestMedia.Width < 720 || media.Width < bestMedia.Width) {
+			if len(media.Part) != 1 {
+				continue
+			}
+			if media.Height <= heightFilter && (bestMedia.Height > heightFilter || media.Height > bestMedia.Height) {
 				bestMedia = media
 			}
 		}
@@ -93,89 +101,116 @@ func GetPlaylistItems(name string, server string, token string) ([]PlaylistItem,
 			continue
 		}
 
-		results = append(results, PlaylistItem{Path: item.Media[0].Part[0].File})
+		newItem := PlaylistItem{Path: item.Media[0].Part[0].File, Parent: item.GrandparentTitle}
+
+		results = append(results, newItem)
+		parents[item.GrandparentTitle] = true
+		hashName := strings.TrimPrefix(newItem.Path, "/")
+		ext := path.Ext(hashName)
+		hashName = strings.TrimSuffix(hashName, ext)
+		hashmap[hashName] = true
 	}
 
-	hashmap := make(map[string]bool)
 	rand.Seed(time.Now().UnixNano())
 	rand.Shuffle(len(results), func(i, j int) {
 		results[i], results[j] = results[j], results[i]
-		hashName := strings.TrimPrefix(results[i].Path, "/")
-		_, dir, ok := strings.Cut(hashName, "/")
-		if !ok {
-			return
-		}
-		split := strings.Split(dir, ".")
-		if len(split) == 1 { // TODO: throw an error here
-			return
-		}
-		hashmap[strings.Join(split[:len(split)-1], ".")] = true
 	})
+	if items.MediaContainer.Metadata[0].Type != "episode" {
+		logger.LogVerbose("Playlist ", name, " retrieved, ", len(results), " items")
+		return results, hashmap, err
+	}
+	var i = 0
+	for i < len(results) {
+		for key, _ := range parents {
+			if results[i].Parent == key {
+				i++
+				continue
+			}
+			for j := i + 1; j < len(results); j++ {
+				if results[j].Parent == key {
+					results[i], results[j] = results[j], results[i]
+					break
+				}
+			}
+			if results[i].Parent == key {
+				i++
+				continue
+			}
+			logger.LogVerbose("End of ", key, " at ", i)
+			delete(parents, key)
+		}
+
+	}
+
 	logger.LogVerbose("Playlist ", name, " retrieved, ", len(results), " items")
 	return results, hashmap, err
 }
 
-func reencodeVideo(id string, src FileSystem, dest FileSystem, file string, config *Config) (File, uint64, error) {
+func reencodeVideo(id string, src FileSystem, dest FileSystem, file string, tempDir string, fast bool) (File, uint64, error) {
 	slice := strings.Split(file, ".")
 	outFile := strings.Join(slice[:len(slice)-1], ".") + ".mp4"
+	var totalSize uint64
 
-	destFile, err := getLocalFile(dest.GetFile(outFile), path.Join(config.TempDir, "dest"))
+	reader, err := src.GetFile(file).ReadFile()
 	if err != nil {
-		logger.LogWarning("error getting dest file: ", err)
-		return destFile, 0, err
+		logger.LogError("error reading file: ", err)
+		return nil, 0, err
 	}
-	srcFile, isSrcCopy, err := getOrCopyLocalFile(id, src.GetFile(file), path.Join(config.TempDir, "src"))
-	if err != nil {
-		logger.LogWarning("error getting src file: ", err)
-		return destFile, 0, err
+	copyFile, duration, audioStreams, _ := Ffprobe(reader)
+	srcFile := src.GetFile(file)
+	destFile := dest.GetFile(outFile)
+	// Just copy the file
+	if copyFile && strings.HasSuffix(file, MediaFormat) {
+		logger.LogVerbose("Copying file: ", file)
+		size, err := destFile.CopyFrom(src, id+outFile)
+		return destFile, size, err
 	}
-
-	progress, msg := FfmpegConverter(srcFile, destFile, 3500*KILO, 720)
-	totalSize := uint64(0)
-	completed := false
-	for {
-		if completed {
-			break
+	var kwargs ffmpeg_go.KwArgs
+	if copyFile {
+		kwargs = ffmpeg_go.KwArgs{
+			"vcodec":   "copy",
+			"movflags": "frag_keyframe+empty_moov",
+			"format":   MediaFormat,
+			"loglevel": "error", "y": "",
 		}
-		select {
-		case data, more := <-progress:
-			completed = !more
-			if more {
-				percent := float64(data.OutTime) / float64(data.Duration)
-				if percent < .01 {
-					percent = .01
-				}
-				remaining := time.Duration((float64(data.Elapsed) / float64(data.OutTime+time.Second)) * float64(data.Duration-data.OutTime))
-				logger.Progress(id+outFile, percent, " at ", data.Speed+"x ", remaining.Round(time.Second).String(), " remaining")
+	} else if fast {
+		return nil, 0, errors.New("file must be converted, skipping because we are in -fast mode")
+	} else {
+		kwargs = ffmpeg_go.KwArgs{
+			"c:v": "libx264",
+			//"tag:v":    "hvc1",
+			"movflags": "frag_keyframe+empty_moov",
+			"crf":      strconv.Itoa(crfFilter),
+			"s":        fmt.Sprintf("%dx%d", widthFilter, heightFilter),
+			"format":   MediaFormat,
+			"loglevel": "error", "y": "",
+		}
+	}
 
-				if totalSize < data.TotalSize {
-					totalSize = data.TotalSize
-				}
-			} else {
-				logger.ProgressClear(id + outFile)
-				logger.LogInfo("Encoding completed: ", humanize.Bytes(totalSize))
-			}
-		case err = <-msg:
-			logger.LogWarning(err)
+	if len(audioStreams) == 0 {
+		kwargs["c:a"] = "aac"
+	} else {
+		var maps = []string{"0:v"}
+		for i := range audioStreams {
+			maps = append(maps, "0:a:"+strconv.Itoa(i))
+		}
+		kwargs["map"] = maps
+	}
+
+	totalSize, err = tryConvert(srcFile, destFile, duration, kwargs, tempDir, id+outFile)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if slice[len(slice)-1] == "mp4" && totalSize > 0 {
+		srcSize := srcFile.GetSize()
+		if totalSize >= srcSize-(20*humanize.MiByte) {
+			logger.LogInfo("Existing file smaller, using that")
+			totalSize, err = destFile.CopyFrom(src, id+outFile)
 			if err != nil {
-				return destFile, totalSize, err
+				return nil, 0, err
 			}
 		}
-	}
-
-	srcSize := srcFile.GetSize()
-	if totalSize > 0 && totalSize >= srcSize-(20*humanize.MiByte) {
-		return srcFile, srcSize, nil
-	}
-
-	if isSrcCopy {
-		go func() {
-			time.Sleep(time.Minute)
-			logger.LogVerbose("Removing src", srcFile.GetAbsolutePath())
-			if err := srcFile.Remove(); err != nil {
-				logger.LogWarning("error removing temp file: ", err)
-			}
-		}()
 	}
 	if totalSize == 0 {
 		err = errors.New("file has 0 bytes")
@@ -185,20 +220,6 @@ func reencodeVideo(id string, src FileSystem, dest FileSystem, file string, conf
 
 	return destFile, totalSize, nil
 
-}
-
-func ifItFitsItSits(id string, tmpFile File, dest FileSystem, remainingBytes uint64) (bool, error) {
-	var err error
-	if !dest.IsLocal() && tmpFile.GetSize() <= remainingBytes {
-		_, err = tmpFile.MoveTo(dest, id)
-	} else if dest.IsLocal() && tmpFile.GetSize() > remainingBytes {
-		if err = tmpFile.Remove(); err != nil {
-			logger.LogWarning("error removing dest file: ", err)
-		}
-	} else if tmpFile.GetSize() > remainingBytes {
-		return false, err
-	}
-	return true, err
 }
 
 func removeLast(bytes uint64, dest FileSystem, items []PlaylistItem, existing map[string]uint64) uint64 {
@@ -221,28 +242,73 @@ func removeLast(bytes uint64, dest FileSystem, items []PlaylistItem, existing ma
 	return removed
 }
 
-func getLocalFile(f File, tempDir string) (File, error) {
-	if f.IsLocal() {
-		return f, nil
+//goland:noinspection GoUnhandledErrorResult
+func tryConvert(in File, out File, duration time.Duration, args ffmpeg_go.KwArgs, tempDir string, id string) (uint64, error) {
+	logger.LogVerbose("Try ffmpeg convert: ", out.GetRelativePath())
+	progress, msg := FfmpegConverter(in, out, duration, args)
+	totalSize, err := watchProgress(progress, msg, id)
+	if _, ok := err.(*InputBufferError); ok && !in.IsLocal() {
+		logger.LogInfo("Copying to temp directory...")
+		tmpFolder := NewLocalFileSystem(path.Join(tempDir, "src"))
+		if err := tmpFolder.Mkdir(path.Dir(in.GetRelativePath())); err != nil {
+			return 0, err
+		}
+		if _, err := in.CopyTo(tmpFolder, id); err != nil {
+			return 0, err
+		}
+		tmpFile := tmpFolder.GetFile(in.GetRelativePath())
+		defer tmpFile.Remove()
+		return tryConvert(tmpFile, out, duration, args, tempDir, id)
+	} else if _, ok := err.(*OutputBufferError); ok && !out.IsLocal() {
+		logger.LogInfo("Making temp directory...")
+		tmpFolder := NewLocalFileSystem(path.Join(tempDir, "dest"))
+		if err := tmpFolder.Mkdir(path.Dir(out.GetRelativePath())); err != nil {
+			return 0, err
+		}
+		tmpFile := tmpFolder.GetFile(out.GetRelativePath())
+		defer tmpFile.Remove()
+		totalSize, err = tryConvert(tmpFile, out, duration, args, tempDir, id)
+		if err != nil {
+			return totalSize, err
+		}
+		return out.CopyFrom(tmpFile.GetFileSystem(), id)
+	} else {
+		return totalSize, err
 	}
-	tmpFolder := NewLocalFileSystem(tempDir)
-	err := tmpFolder.Mkdir(path.Dir(f.GetRelativePath()))
-	return tmpFolder.GetFile(f.GetRelativePath()), err
-
 }
 
-func getOrCopyLocalFile(id string, f File, tempDir string) (File, bool, error) {
-	if f.IsLocal() {
-		return f, false, nil
+func watchProgress(progress chan FfmpegProps, errChan chan error, id string) (uint64, error) {
+	totalSize := uint64(0)
+	for {
+		select {
+		case data, more := <-progress:
+			if more {
+				percent := float64(data.OutTime) / float64(data.Duration)
+				remaining := time.Duration((float64(data.Elapsed) / float64(data.OutTime+time.Second)) * float64(data.Duration-data.OutTime))
+				logger.Progress(id, percent, " at ", data.Speed+"x ", remaining.Round(time.Second).String(), " remaining")
+
+				if totalSize < data.TotalSize {
+					totalSize = data.TotalSize
+				}
+			} else {
+				logger.ProgressClear(id)
+			}
+		case err, more := <-errChan:
+			if err != nil {
+				logger.ProgressClear(id)
+				logger.LogWarning(err)
+				return totalSize, err
+			}
+
+			if !more {
+				logger.ProgressClear(id)
+				logger.LogInfo("Encoding completed: ", humanize.Bytes(totalSize))
+				return totalSize, err
+			}
+		}
 	}
-	logger.LogInfo("Copying to temp directory...")
-	tmpFolder := NewLocalFileSystem(tempDir)
-	err := tmpFolder.Mkdir(path.Dir(f.GetRelativePath()))
-	if err == nil {
-		_, err = f.CopyTo(tmpFolder, id)
-	}
-	return tmpFolder.GetFile(f.GetRelativePath()), true, err
 }
+
 func getBase(items []PlaylistItem) (string, error) {
 	if len(items) == 0 {
 		return "", errors.New("no items")

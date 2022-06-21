@@ -17,6 +17,7 @@ type Config struct {
 }
 
 type Playlist struct {
+	Clean     bool           `json:clean`
 	LibraryId int            `json:"library"`
 	Name      string         `json:"name"`
 	RawSize   string         `json:"size"`
@@ -48,7 +49,8 @@ func (p *Playlist) GetTotalSize() uint64 {
 }
 
 type PlaylistItem struct {
-	Path string `json:"path"`
+	Path   string `json:"path"`
+	Parent string `json:"parent"`
 }
 
 func (p *PlaylistItem) GetSize(f filesystem.FileSystem) uint64 {

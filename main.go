@@ -2,131 +2,164 @@ package main
 
 import (
 	_ "fmt"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v2"
 	"os"
 	"plex-go-sync/internal/actions"
 	"plex-go-sync/internal/logger"
 )
 
 func main() {
-	app := cli.NewApp()
-	app.Name = "plex-go-sync"
-	app.Usage = "Sync Plex Libraries"
-	app.Version = "0.0.1"
-
-	app.Commands = []cli.Command{
-		{
-			Name:   "sync",
-			Usage:  "Sync play status",
-			Action: actions.SyncPlayStatus,
-			Flags: []cli.Flag{
-				cli.StringFlag{
-					Name:      "configs, c",
-					Value:     "configs.json",
-					Usage:     "configuration file",
-					TakesFile: true,
-				},
-				cli.StringFlag{
-					Name:  "server, s",
-					Usage: "plex server address",
-				},
-				cli.StringFlag{
-					Name:  "token, t",
-					Usage: "plex server token",
-				},
-				cli.StringSliceFlag{
-					Name:  "library, l",
-					Usage: "library to sync",
-				},
-				cli.StringFlag{
-					Name:  "destination-server, d",
-					Usage: "destination server address",
-				},
-				cli.StringFlag{
-					Name:  "loglevel",
-					Usage: "one of VERBOSE, INFO, WARN, ERROR",
-				},
+	app := &cli.App{
+		Name:    "plex-go-sync",
+		Usage:   "Sync Plex Libraries",
+		Version: "0.5.0",
+		Authors: []*cli.Author{
+			{
+				Name: "David Benson",
 			},
 		},
-		{
-			Name:   "clone",
-			Usage:  "Clone a set of libraries",
-			Action: actions.CloneLibraries,
-			Flags: []cli.Flag{
-				cli.StringFlag{
-					Name:      "configs, c",
-					Value:     "configs.json",
-					Usage:     "configuration file",
-					TakesFile: true,
-				},
-				cli.StringFlag{
-					Name:  "server, s",
-					Usage: "plex server address",
-				},
-				cli.StringFlag{
-					Name:  "token, t",
-					Usage: "plex server token",
-				},
-				cli.StringSliceFlag{
-					Name:  "playlist, p",
-					Usage: "playlist to clone",
-				},
-				cli.StringSliceFlag{
-					Name:  "size",
-					Usage: "max size of playlist to copy",
-				},
-				cli.StringFlag{
-					Name:  "destination-server, d",
-					Usage: "destination server address",
-				},
-				cli.StringFlag{
-					Name:  "source, src",
-					Usage: "source path",
-				},
-				cli.StringFlag{
-					Name:  "destination, dest",
-					Usage: "destination path",
-				},
-				cli.StringFlag{
-					Name:  "loglevel",
-					Usage: "one of VERBOSE, INFO, WARN, ERROR",
+		Commands: []*cli.Command{
+			{
+				Name:   "sync",
+				Usage:  "Sync play status only",
+				Action: actions.SyncPlayStatus,
+				Flags: []cli.Flag{
+					&cli.PathFlag{
+						Name:      "config",
+						Aliases:   []string{"c"},
+						Value:     "configs.json",
+						Usage:     "Load configuration from `FILE`",
+						TakesFile: true,
+					},
+					&cli.StringFlag{
+						Name:    "server",
+						Aliases: []string{"i"},
+						Usage:   "Plex server address",
+					},
+					&cli.StringFlag{
+						Name:    "token",
+						Aliases: []string{"t"},
+						Usage:   "Plex server token",
+					},
+					&cli.StringSliceFlag{
+						Name:    "library",
+						Aliases: []string{"l"},
+						Usage:   "Library to sync",
+					},
+					&cli.StringFlag{
+						Name:    "destination-server",
+						Aliases: []string{"o"},
+						Usage:   "Destination server address",
+					},
+					&cli.StringFlag{
+						Name:  "loglevel",
+						Usage: "One of VERBOSE, INFO, WARN, ERROR",
+					},
 				},
 			},
-		},
-		{
-			Name:   "clean",
-			Usage:  "Clean a destination library",
-			Action: actions.CleanLibrary,
-			Flags: []cli.Flag{
-				cli.StringFlag{
-					Name:      "configs, c",
-					Value:     "configs.json",
-					Usage:     "configuration file",
-					TakesFile: true,
+			{
+				Name:   "clone",
+				Usage:  "Clone a set of libraries",
+				Action: actions.CloneLibraries,
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:      "config",
+						Aliases:   []string{"c"},
+						Value:     "configs.json",
+						Usage:     "Load configuration from `FILE`",
+						TakesFile: true,
+					},
+					&cli.StringFlag{
+						Name:    "server",
+						Aliases: []string{"i"},
+						Usage:   "Plex server address",
+					},
+					&cli.StringFlag{
+						Name:    "token",
+						Aliases: []string{"t"},
+						Usage:   "Plex server token",
+					},
+					&cli.StringSliceFlag{
+						Name:    "playlist",
+						Aliases: []string{"p"},
+						Usage:   "Playlist to clone",
+					},
+					&cli.StringSliceFlag{
+						Name:  "size",
+						Usage: "Max size of playlist to copy",
+					},
+					&cli.StringFlag{
+						Name:    "destination-server",
+						Aliases: []string{"o"},
+						Usage:   "Destination server address",
+					},
+					&cli.StringFlag{
+						Name:    "source",
+						Aliases: []string{"s", "src"},
+						Usage:   "Source path",
+					},
+					&cli.StringFlag{
+						Name:    "destination",
+						Aliases: []string{"d", "dest"},
+						Usage:   "Destination path",
+					},
+					&cli.BoolFlag{
+						Name:    "reset",
+						Aliases: []string{"r"},
+						Usage:   "Start sync from the beginning",
+					},
+					&cli.BoolFlag{
+						Name:    "fast",
+						Aliases: []string{"f"},
+						Usage:   "Skip files requiring full encodings",
+					},
+					&cli.StringFlag{
+						Name:  "loglevel",
+						Usage: "One of VERBOSE, INFO, WARN, ERROR",
+					},
 				},
-				cli.StringFlag{
-					Name:  "server, s",
-					Usage: "plex server address",
-				},
-				cli.StringFlag{
-					Name:  "token, t",
-					Usage: "plex server token",
-				},
-				cli.StringSliceFlag{
-					Name:  "library, l",
-					Usage: "library to clean",
-				},
-				cli.StringFlag{
-					Name:  "destination-server, d",
-					Usage: "destination server address",
-				},
-				cli.StringFlag{
-					Name:  "destination, dest",
-					Usage: "destination path",
-				},
-				cli.StringFlag{
-					Name:  "loglevel",
-					Usage: "one of VERBOSE, INFO, WARN, ERROR",
+			},
+			{
+				Name:   "clean",
+				Usage:  "Clean a destination library",
+				Action: actions.CleanLibrary,
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:      "config",
+						Aliases:   []string{"c"},
+						Value:     "configs.json",
+						Usage:     "Load configuration from `FILE`",
+						TakesFile: true,
+					},
+					&cli.StringFlag{
+						Name:    "server",
+						Aliases: []string{"i"},
+						Usage:   "Plex server address",
+					},
+					&cli.StringFlag{
+						Name:    "token",
+						Aliases: []string{"t"},
+						Usage:   "Plex server token",
+					},
+					&cli.StringSliceFlag{
+						Name:    "library",
+						Aliases: []string{"l"},
+						Usage:   "Library to sync",
+					},
+					&cli.StringFlag{
+						Name:    "destination-server",
+						Aliases: []string{"o"},
+						Usage:   "Destination server address",
+					},
+					&cli.StringFlag{
+						Name:    "destination",
+						Aliases: []string{"d", "dest"},
+						Usage:   "Destination path",
+					},
+					&cli.StringFlag{
+						Name:  "loglevel",
+						Usage: "One of VERBOSE, INFO, WARN, ERROR",
+					},
 				},
 			},
 		},

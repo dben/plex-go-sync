@@ -2,7 +2,7 @@ package actions
 
 import (
 	"github.com/dustin/go-humanize"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v2"
 	"plex-go-sync/internal/filesystem"
 	"plex-go-sync/internal/logger"
 	"sync"
@@ -10,7 +10,7 @@ import (
 
 func SyncPlayStatus(c *cli.Context) error {
 	logger.SetLogLevel(c.String("loglevel"))
-	config, err := ReadConfig(c.String("configs"), c)
+	config, err := ReadConfig(c.Path("config"), c)
 	if err != nil {
 		logger.LogError(err.Error())
 		return err
@@ -26,7 +26,7 @@ func SyncPlayStatus(c *cli.Context) error {
 
 func CloneLibraries(c *cli.Context) error {
 	logger.SetLogLevel(c.String("loglevel"))
-	config, err := ReadConfig(c.String("configs"), c)
+	config, err := ReadConfig(c.Path("config"), c)
 	if err != nil {
 		logger.LogError(err.Error())
 		return err
@@ -36,8 +36,11 @@ func CloneLibraries(c *cli.Context) error {
 	var wg sync.WaitGroup
 	progress := make(chan *Playlist, 2)
 
-	playlists, err := LoadProgress()
-	if err == nil {
+	var playlists []Playlist
+	if c.Bool("reset") {
+		ClearProgress()
+		playlists = config.Playlists
+	} else if playlists, err = LoadProgress(); err == nil {
 		config.Playlists = playlists
 	} else {
 		playlists = config.Playlists
@@ -57,7 +60,7 @@ func CloneLibraries(c *cli.Context) error {
 
 	for j := 0; j < len(playlists); j++ {
 		wg.Add(1)
-		go CloneLibrary(&playlists[j], config, src, dest, &wg, progress)
+		go CloneLibrary(&playlists[j], config, src, dest, c.Bool("fast"), &wg, progress)
 	}
 	wg.Wait()
 	close(progress)
@@ -72,7 +75,7 @@ func CloneLibraries(c *cli.Context) error {
 
 func CleanLibrary(c *cli.Context) error {
 	logger.SetLogLevel(c.String("loglevel"))
-	config, err := ReadConfig(c.String("configs"), c)
+	config, err := ReadConfig(c.Path("config"), c)
 	if err != nil {
 		logger.LogError(err.Error())
 		return err
@@ -86,7 +89,7 @@ func CleanLibrary(c *cli.Context) error {
 			continue
 		}
 
-		logger.LogInfof(logger.Green+"%s: %s used of %s"+logger.DefaultColor+"\n", playlist.Name, humanize.Bytes(usedSize), playlist.RawSize)
+		logger.LogInfof(logger.Green+"%s: %s used of %s"+logger.Reset+"\n", playlist.Name, humanize.Bytes(usedSize), playlist.RawSize)
 	}
 
 	filesystem.CloseAllSmbConnections()

@@ -27,6 +27,10 @@ func CleanPlaylist(playlist *Playlist, config *Config, fs filesystem.FileSystem)
 		return nil, 0, base, err
 	}
 
+	if !playlist.Clean {
+		playlistItemMap = nil
+	}
+
 	logger.LogInfo("Cleaning ", path.Join(fs.GetPath(), base), " directory")
 	existing, existingSize, err := fs.Clean(base, playlistItemMap)
 	if err == nil {

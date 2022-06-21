@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func CloneLibrary(playlist *Playlist, config *Config, src filesystem.FileSystem, dest filesystem.FileSystem, wg *sync.WaitGroup, progress chan<- *Playlist) {
+func CloneLibrary(playlist *Playlist, config *Config, src filesystem.FileSystem, dest filesystem.FileSystem, fast bool, wg *sync.WaitGroup, progress chan<- *Playlist) {
 	existing, existingSize, base, err := CleanPlaylist(playlist, config, dest)
 	playlistItems := playlist.Items
 
@@ -51,7 +51,7 @@ func CloneLibrary(playlist *Playlist, config *Config, src filesystem.FileSystem,
 				humanize.Bytes(usedSize), " used of ", playlist.RawSize, ", ",
 				time.Since(start).Round(time.Second).String(), " elapsed, ",
 				remaining.Round(time.Second).String(), " (", humanize.Bytes(playlist.Size), ") remaining.",
-				logger.DefaultColor, "\n")
+				logger.Reset, "\n")
 		}
 
 		item := playlistItems[i]
@@ -66,20 +66,14 @@ func CloneLibrary(playlist *Playlist, config *Config, src filesystem.FileSystem,
 			playlist.Size += clearedBytes
 		}
 
-		tmpFile, size, err := reencodeVideo(playlist.Name, src, dest, item.Path, config)
+		destFile, size, err := reencodeVideo(playlist.Name, src, dest, item.Path, config.TempDir, fast)
 		if err != nil {
-			logger.LogErrorf("Error reencoding %s: %s\n", tmpFile.GetAbsolutePath(), err)
-			if tmpFile != nil {
-				_ = tmpFile.Remove()
-			}
+			logger.LogErrorf("Error reencoding %s: %s\n", item.Path, err)
 			continue
 		}
-		fits, err := ifItFitsItSits(playlist.Name, tmpFile, dest, playlist.Size)
-		if err != nil {
-			logger.LogErrorf("Error moving %s: %s\n", tmpFile.GetAbsolutePath(), err)
-			continue
-		}
-		if !fits {
+
+		if size > playlist.Size {
+			_ = destFile.Remove()
 			logger.LogInfo("Finished copying ", playlist.Name)
 			playlist.Size = 0
 			playlist.Items = []PlaylistItem{}
