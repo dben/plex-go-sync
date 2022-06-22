@@ -1,0 +1,21 @@
+name: Build and publish release packages
+on:
+  release:
+    types: [created]
+
+jobs:
+  release:
+    name: "Build Go Binary"
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goos: [ linux, darwin ]
+        goarch: [ amd64, arm64 ]
+    steps:
+      - uses: actions/checkout@v3
+      - uses: wangyoucao577/go-release-action@v1.29
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          goos: ${{ matrix.goos }}
+          goarch: ${{ matrix.goarch }}
+          extra_files: LICENSE README.md configs/example.json

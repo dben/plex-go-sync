@@ -12,7 +12,7 @@ func main() {
 	app := &cli.App{
 		Name:    "plex-go-sync",
 		Usage:   "Sync Plex Libraries",
-		Version: "0.5.0",
+		Version: "0.9.0",
 		Authors: []*cli.Author{
 			{
 				Name: "David Benson",
