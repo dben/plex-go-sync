@@ -2,9 +2,11 @@ package actions
 
 import (
 	"github.com/dustin/go-humanize"
+	"math"
 	"path"
 	"plex-go-sync/internal/filesystem"
 	"plex-go-sync/internal/logger"
+	"strings"
 	"sync"
 	"time"
 )
@@ -33,7 +35,7 @@ func CloneLibrary(playlist *Playlist, config *Config, src filesystem.FileSystem,
 		}
 	}
 
-	totalBytes := playlist.GetTotalSize()
+	totalBytes := playlist.GetTotalSize(config.Destination, existingSize)
 	playlist.Size = totalBytes - existingSize
 
 	logger.LogInfo("Starting conversion")
@@ -41,29 +43,36 @@ func CloneLibrary(playlist *Playlist, config *Config, src filesystem.FileSystem,
 	start := time.Now().Add(-time.Second)
 
 	for i := 0; i < len(playlistItems); i++ {
-		usedSize := totalBytes - playlist.Size + 1
-		remaining := time.Duration((float64(time.Since(start)) / float64(usedSize-existingSize)) * float64(playlist.Size))
-		if remaining < 0 { // this should be enough to check invalid times
-			remaining = time.Duration(3*len(playlistItems)) * time.Minute // rough estimate
-		}
-		if (logger.LogLevel != "WARN") && (logger.LogLevel != "ERROR") {
-			logger.LogPersistent(playlist.Name, logger.Green, playlist.Name, ": ",
-				humanize.Bytes(usedSize), " used of ", playlist.RawSize, ", ",
-				time.Since(start).Round(time.Second).String(), " elapsed, ",
-				remaining.Round(time.Second).String(), " (", humanize.Bytes(playlist.Size), ") remaining.",
-				logger.Reset, "\n")
-		}
+		cloneStatus(*playlist, existingSize, totalBytes, start)
 
 		item := playlistItems[i]
-		if existing[item.Path] > 0 {
+		_, key, _ := strings.Cut(strings.TrimPrefix(item.Path, "/"), "/")
+		var originalBytes int64
+		if existing[key] > 0 {
+			originalBytes = 0
+		} else {
+			originalBytes = int64(src.GetSize(item.Path))
+		}
+		if playlist.Size < originalBytes && i != len(playlistItems)-1 {
+			logger.LogInfo("Cleaning up old files...")
+			toRemove := originalBytes - playlist.Size
+			clearedBytes := removeLast(toRemove, dest, playlistItems[i+1:], existing)
+			if clearedBytes > 0 {
+				logger.LogInfo("Removed last", humanize.Bytes(uint64(clearedBytes)), " from ", playlist.Name)
+				playlist.Size += clearedBytes
+				cloneStatus(*playlist, existingSize, totalBytes, start)
+			}
+		}
+		if existing[key] > 0 {
 			logger.LogInfo("File exists, skipping ", item.Path)
 			continue
 		}
-		originalBytes := src.GetSize(item.Path)
-		if playlist.Size < originalBytes && i != len(playlistItems)-1 {
-			logger.LogInfo("Cleaning up old files...")
-			clearedBytes := removeLast(originalBytes, dest, playlistItems[i+1:], existing)
-			playlist.Size += clearedBytes
+
+		if playlist.Size < humanize.MiByte*50 {
+			logger.LogInfo(logger.Green, "Finished copying ", playlist.Name, logger.Reset)
+			playlist.Size = 0
+			playlist.Items = []PlaylistItem{}
+			break
 		}
 
 		destFile, size, err := reencodeVideo(playlist.Name, src, dest, item.Path, config.TempDir, fast)
@@ -72,19 +81,35 @@ func CloneLibrary(playlist *Playlist, config *Config, src filesystem.FileSystem,
 			continue
 		}
 
-		if size > playlist.Size {
+		if int64(size) > playlist.Size {
 			_ = destFile.Remove()
-			logger.LogInfo("Finished copying ", playlist.Name)
+			logger.LogInfo(logger.Green, "Finished copying ", playlist.Name, logger.Reset)
 			playlist.Size = 0
 			playlist.Items = []PlaylistItem{}
 			break
 		}
 
-		playlist.Size -= size
+		playlist.Size = int64(math.Max(float64(playlist.Size)-float64(size), 0))
 		playlist.Items = playlistItems[i+1:]
 
 		progress <- playlist
 		logger.LogVerbose("Moving to next item")
 	}
 	wg.Done()
+}
+
+func cloneStatus(playlist Playlist, existingSize int64, totalBytes int64, start time.Time) {
+	if (logger.LogLevel != "WARN") && (logger.LogLevel != "ERROR") {
+		usedSize := totalBytes - playlist.Size + 1
+		remaining := time.Duration((float64(time.Since(start)) / float64(usedSize-existingSize)) * float64(playlist.Size))
+		if remaining < 0 { // this should be enough to check invalid times
+			remaining = time.Duration(3*len(playlist.Items)) * time.Minute // rough estimate
+		}
+
+		logger.LogPersistent(playlist.Name, logger.Green, playlist.Name, ": ",
+			humanize.Bytes(uint64(usedSize)), " used of ", humanize.Bytes(uint64(totalBytes)), ", ",
+			time.Since(start).Round(time.Second).String(), " elapsed, ",
+			remaining.Round(time.Second).String(), " (", humanizeNegBytes(playlist.Size), ") remaining.",
+			logger.Reset, "\n")
+	}
 }

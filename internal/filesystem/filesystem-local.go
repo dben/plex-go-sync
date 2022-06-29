@@ -2,6 +2,7 @@ package filesystem
 
 import (
 	"github.com/dustin/go-humanize"
+	"github.com/shirou/gopsutil/disk"
 	"io"
 	"os"
 	"path"
@@ -16,7 +17,13 @@ type LocalFileSystem struct {
 func NewLocalFileSystem(dir string) FileSystem {
 	return &LocalFileSystem{Path: dir}
 }
-func (f *LocalFileSystem) Clean(base string, lookup map[string]bool) (map[string]uint64, uint64, error) {
+
+func (f *LocalFileSystem) GetFreeSpace(base string) (uint64, error) {
+	stat, err := disk.Usage(path.Join(f.Path, base))
+	return stat.Free, err
+}
+
+func (f *LocalFileSystem) Clean(base string, lookup map[string]bool) (map[string]uint64, int64, error) {
 	logger.LogInfo("Cleaning ", base)
 	dir := f.abs(base)
 	return cleanFiles(&osImpl{}, os.DirFS(dir), lookup)

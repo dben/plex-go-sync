@@ -21,13 +21,13 @@ type Playlist struct {
 	LibraryId int            `json:"library"`
 	Name      string         `json:"name"`
 	RawSize   string         `json:"size"`
-	Size      uint64         `json:"bytes"`
+	Size      int64          `json:"bytes"`
 	Items     []PlaylistItem `json:"items"`
 }
 
 func NewPlaylist(name string, rawSize string) *Playlist {
 	size, _ := humanize.ParseBytes(rawSize)
-	return &Playlist{Name: name, RawSize: rawSize, Size: size}
+	return &Playlist{Name: name, RawSize: rawSize, Size: int64(size)}
 }
 
 func (p *Playlist) GetBase() string {
@@ -35,17 +35,26 @@ func (p *Playlist) GetBase() string {
 	return before
 }
 
-func (p *Playlist) GetSize() uint64 {
+func (p *Playlist) GetSize() int64 {
 	if p.Size == 0 {
 		size, _ := humanize.ParseBytes(p.RawSize)
-		p.Size = size
+		p.Size = int64(size)
 	}
 	return p.Size
 }
 
-func (p *Playlist) GetTotalSize() uint64 {
+func (p *Playlist) GetTotalSize(root string, existing int64) int64 {
+	if p.RawSize == "" {
+		fs := filesystem.NewFileSystem(root)
+		size, err := fs.GetFreeSpace(p.GetBase())
+		if err != nil {
+			return 0
+		}
+		// leave some space on the drive
+		return int64(size) - (500 * humanize.MiByte) + existing
+	}
 	size, _ := humanize.ParseBytes(p.RawSize)
-	return size
+	return int64(size)
 }
 
 type PlaylistItem struct {

@@ -5,7 +5,7 @@ import (
 	"github.com/urfave/cli/v2"
 	"plex-go-sync/internal/filesystem"
 	"plex-go-sync/internal/logger"
-	"sync"
+	"time"
 )
 
 func SyncPlayStatus(c *cli.Context) error {
@@ -33,7 +33,7 @@ func CloneLibraries(c *cli.Context) error {
 	}
 	dest := filesystem.NewFileSystem(config.Destination)
 	src := filesystem.NewFileSystem(config.Source)
-	var wg sync.WaitGroup
+	var wg WaitGroupCount
 	progress := make(chan *Playlist, 2)
 
 	var playlists []Playlist
@@ -60,7 +60,13 @@ func CloneLibraries(c *cli.Context) error {
 
 	for j := 0; j < len(playlists); j++ {
 		wg.Add(1)
-		go CloneLibrary(&playlists[j], config, src, dest, c.Bool("fast"), &wg, progress)
+		if wg.GetCount() > 2 {
+			logger.LogInfo("Throttling to 2 concurrent threads")
+		}
+		for wg.GetCount() > 2 {
+			time.Sleep(time.Minute * 5)
+		}
+		go CloneLibrary(&playlists[j], config, src, dest, c.Bool("fast"), &wg.WaitGroup, progress)
 	}
 	wg.Wait()
 	close(progress)
@@ -89,7 +95,7 @@ func CleanLibrary(c *cli.Context) error {
 			continue
 		}
 
-		logger.LogInfof(logger.Green+"%s: %s used of %s"+logger.Reset+"\n", playlist.Name, humanize.Bytes(usedSize), playlist.RawSize)
+		logger.LogInfof(logger.Green+"%s: %s used of %s"+logger.Reset+"\n", playlist.Name, humanize.Bytes(uint64(usedSize)), playlist.RawSize)
 	}
 
 	filesystem.CloseAllSmbConnections()

@@ -10,9 +10,9 @@ import (
 	"time"
 )
 
-func cleanFiles(remove removeFS, fs iofs.FS, lookup map[string]bool) (map[string]uint64, uint64, error) {
+func cleanFiles(remove removeFS, fs iofs.FS, lookup map[string]bool) (map[string]uint64, int64, error) {
 	results := make(map[string]uint64)
-	totalSize := uint64(0)
+	totalSize := int64(0)
 	err := iofs.WalkDir(fs, ".", func(path string, info iofs.DirEntry, err error) error {
 		if info.IsDir() {
 			return nil
@@ -34,7 +34,7 @@ func cleanFiles(remove removeFS, fs iofs.FS, lookup map[string]bool) (map[string
 				return err
 			}
 			results[path] = uint64(detail.Size())
-			totalSize += uint64(detail.Size())
+			totalSize += detail.Size()
 			return nil
 		}
 

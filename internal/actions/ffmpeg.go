@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/dustin/go-humanize"
 	ffmpeg_go "github.com/u2takey/ffmpeg-go"
 	"io"
 	"log"
@@ -73,7 +74,7 @@ func (e *InputBufferError) Error() string {
 	return e.message
 }
 
-const bitrateFilter = 3500 * KILO
+const bitrateFilter = 3500 * humanize.KByte
 const heightFilter = 720
 const widthFilter = 1280
 const crfFilter = 23

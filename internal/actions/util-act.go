@@ -18,8 +18,6 @@ import (
 	"time"
 )
 
-const KILO = 1000
-
 func ReadConfig(configFile string, args *cli.Context) (*Config, error) {
 	var config Config
 	logger.LogInfo("Loading config...")
@@ -222,16 +220,17 @@ func reencodeVideo(id string, src FileSystem, dest FileSystem, file string, temp
 
 }
 
-func removeLast(bytes uint64, dest FileSystem, items []PlaylistItem, existing map[string]uint64) uint64 {
-	removed := uint64(0)
+func removeLast(bytes int64, dest FileSystem, items []PlaylistItem, existing map[string]uint64) int64 {
+	removed := int64(0)
 	for i := len(items) - 1; i >= 0; i-- {
-		key := items[i].Path
+		_, key, _ := strings.Cut(strings.TrimPrefix(items[i].Path, "/"), "/")
 		if existing[key] != 0 {
-			if err := dest.Remove(key); err != nil {
-				logger.LogWarning("error removing ", key, ": ", err.Error())
+			logger.LogVerbose("Removing ", items[i].Path)
+			if err := dest.Remove(items[i].Path); err != nil {
+				logger.LogWarning("error removing ", items[i].Path, ": ", err.Error())
 			} else {
-				bytes -= existing[key]
-				removed += existing[key]
+				bytes -= int64(existing[key])
+				removed += int64(existing[key])
 				delete(existing, key)
 			}
 		}
@@ -318,4 +317,11 @@ func getBase(items []PlaylistItem) (string, error) {
 		return "", errors.New("invalid path structure")
 	}
 	return base, nil
+}
+
+func humanizeNegBytes(val int64) string {
+	if val < 0 {
+		return "-" + humanize.Bytes(uint64(val*-1))
+	}
+	return humanize.Bytes(uint64(val))
 }

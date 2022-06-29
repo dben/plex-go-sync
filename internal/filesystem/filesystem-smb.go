@@ -46,7 +46,20 @@ func NewSmbFileSystem(dir string) FileSystem {
 	return &SmbFileSystem{Path: dir, Host: host, Username: username, Password: password}
 }
 
-func (f *SmbFileSystem) Clean(base string, lookup map[string]bool) (map[string]uint64, uint64, error) {
+func (f *SmbFileSystem) GetFreeSpace(base string) (uint64, error) {
+	share, _, err := f.smbMount(base)
+	if err != nil {
+		return 0, err
+	}
+	stat, err := share.Statfs(".")
+	if err != nil {
+		return 0, err
+	}
+	logger.LogVerbose("Free space: ", stat.FreeBlockCount()*stat.BlockSize())
+	return stat.FreeBlockCount() * stat.BlockSize(), nil
+}
+
+func (f *SmbFileSystem) Clean(base string, lookup map[string]bool) (map[string]uint64, int64, error) {
 	logger.LogInfo("Cleaning ", base)
 	share, _, err := f.smbMount(base)
 	if err != nil {
@@ -257,7 +270,9 @@ func (f *SmbFileSystem) smbMount(filepath string) (*smb2.Share, string, error) {
 	if conn.shares[base] == nil || err != nil {
 		conn.shares[base], err = conn.session.Mount("//" + addr + "/" + base)
 		if err != nil {
-			_ = conn.shares[base].Umount()
+			if conn.shares[base] != nil {
+				_ = conn.shares[base].Umount()
+			}
 			return nil, filename, err
 		}
 	}
