@@ -20,31 +20,37 @@ Example usage:
 ```
 sync     Sync play status
    Options
-   --configs value, -c value             configuration file (default: "configs.json")
-   --server value, -s value              plex server address
-   --token value, -t value               plex server token
-   --library value, -l value             library to sync
-   --destination-server value, -d value  destination server address
+   --config FILE, -c FILE                Load configuration from FILE (default: "configs.json")
+   --destination-server value, -o value  Destination server address
+   --library value, -l value             Library to sync  (accepts multiple inputs)
+   --loglevel value                      One of VERBOSE, INFO, WARN, ERROR
+   --server value, -i value              Plex server address
+   --token value, -t value               Plex server token
+
    
 clone    Clone a set of libraries
     Options
-   --configs value, -c value             configuration file (default: "configs.json")
-   --server value, -s value              plex server address
-   --token value, -t value               plex server token
-   --playlist value, -p value            playlist to clone
-   --size value                          max size of playlist to copy
-   --destination-server value, -d value  destination server address
-   --source value, --src value           source path
-   --destination value, --dest value     destination path
+   --config FILE, -c FILE                       Load configuration from FILE (default: "configs.json")
+   --destination value, -d value, --dest value  Destination path
+   --destination-server value, -o value         Destination server address
+   --fast, -f                                   Skip files requiring full encodings (default: false)
+   --loglevel value                             One of VERBOSE, INFO, WARN, ERROR
+   --playlist value, -p value                   Playlist to clone  (accepts multiple inputs)
+   --reset, -r                                  Start sync from the beginning (default: false)
+   --server value, -i value                     Plex server address
+   --size value                                 Max size of playlist to copy  (accepts multiple inputs)
+   --source value, -s value, --src value        Source path
+   --token value, -t value                      Plex server token
 
 clean    Clean a destination library
     Options
-   --configs value, -c value             configuration file (default: "configs.json")
-   --server value, -s value              plex server address
-   --token value, -t value               plex server token
-   --library value, -l value             library to clean
-   --destination-server value, -d value  destination server address
-   --destination value, --dest value     destination path
+   --config FILE, -c FILE                       Load configuration from FILE (default: "configs.json")
+   --destination value, -d value, --dest value  Destination path
+   --destination-server value, -o value         Destination server address
+   --library value, -l value                    Library to sync  (accepts multiple inputs)
+   --loglevel value                             One of VERBOSE, INFO, WARN, ERROR
+   --server value, -i value                     Plex server address
+   --token value, -t value                      Plex server token
 ```
 
 ## Configuration file format:
