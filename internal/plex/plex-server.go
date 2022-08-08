@@ -7,6 +7,7 @@ import (
 	"github.com/jrudio/go-plex-client"
 	"net/http"
 	"net/url"
+	"path"
 	"plex-go-sync/internal/logger"
 	"strconv"
 	"strings"
@@ -211,5 +212,51 @@ func (p *Server) GetLibrarySectionByName(name string, filter string) (plex.Searc
 	}
 	content, err := p.GetLibraryContent(key, filter)
 	return content, libType, err
+}
 
+func (p *Server) GetPlaylistItems(name string) (plex.SearchResultsEpisode, error) {
+	playlist, err := p.GetPlaylistsByName(name)
+	if err != nil {
+		return plex.SearchResultsEpisode{}, err
+	}
+	if len(playlist.MediaContainer.Metadata) == 0 {
+		return plex.SearchResultsEpisode{}, errors.New("no playlist found")
+	}
+	playlistKey, err := strconv.Atoi(playlist.MediaContainer.Metadata[0].RatingKey)
+	if err != nil {
+		return plex.SearchResultsEpisode{}, err
+	}
+	items, err := p.GetPlaylist(playlistKey)
+	if err != nil {
+		return plex.SearchResultsEpisode{}, err
+	}
+	return items, nil
+}
+
+func GetMediaPath(item plex.Metadata, heightFilter int) (string, string) {
+	// find 720p if exists
+	bestMedia := item.Media[0]
+	for _, media := range item.Media {
+		if len(media.Part) != 1 {
+			continue
+		}
+		if media.Height <= heightFilter && (bestMedia.Height > heightFilter || media.Height > bestMedia.Height) {
+			bestMedia = media
+		}
+	}
+
+	if len(bestMedia.Part) != 1 {
+		// multipart files - not supported yet
+		return "", ""
+	}
+
+	// the key is the path to the file, without the base directory, extension, or a leading slash
+	key := strings.TrimPrefix(bestMedia.Part[0].File, "/")
+	_, key, _ = strings.Cut(key, "/")
+	if key == "" {
+		return "", ""
+	}
+	key = strings.TrimSuffix(key, path.Ext(key))
+
+	return bestMedia.Part[0].File, key
 }

@@ -67,10 +67,12 @@ clean    Clean a destination library
     {
       "name": "TV Sync List", // The name of the playlist
       "size": "100G" // The maximum size to copy
+      "clean": true // Whether to clean the destination library of extraneous files before copying
     },
     {
       "name": "Movie Sync List",
       "size": "100G"
+      "clean": false
     }
   ]
 }

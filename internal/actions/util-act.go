@@ -54,6 +54,29 @@ func ReadConfig(configFile string, args *cli.Context) (*Config, error) {
 	return &config, err
 }
 
+func GetAltItems(name string, server string, token string, baseDir string, itemMap map[string]bool) error {
+	plexServer, err := plex.New(server, token)
+	if err != nil {
+		logger.LogError("Failed to connect to plex: ", err)
+		return err
+	}
+
+	items, err := plexServer.GetPlaylistItems(name)
+	if err != nil {
+		return err
+	}
+
+	for _, item := range items.MediaContainer.Metadata {
+		var mediaPath, key = plex.GetMediaPath(item, heightFilter)
+		var base, _, _ = strings.Cut(strings.TrimLeft(mediaPath, "/"), "/")
+		if base != baseDir {
+			continue
+		}
+		itemMap[key] = true
+	}
+	return nil
+}
+
 func GetPlaylistItems(name string, server string, token string) ([]PlaylistItem, map[string]bool, error) {
 	var results []PlaylistItem
 	plexServer, err := plex.New(server, token)
@@ -62,18 +85,7 @@ func GetPlaylistItems(name string, server string, token string) ([]PlaylistItem,
 		return nil, nil, err
 	}
 
-	playlist, err := plexServer.GetPlaylistsByName(name)
-	if err != nil {
-		return nil, nil, err
-	}
-	if len(playlist.MediaContainer.Metadata) == 0 {
-		return nil, nil, errors.New("no playlist found")
-	}
-	key, err := strconv.Atoi(playlist.MediaContainer.Metadata[0].RatingKey)
-	if err != nil {
-		return nil, nil, err
-	}
-	items, err := plexServer.GetPlaylist(key)
+	items, err := plexServer.GetPlaylistItems(name)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -82,31 +94,15 @@ func GetPlaylistItems(name string, server string, token string) ([]PlaylistItem,
 	hashmap := make(map[string]bool)
 
 	for _, item := range items.MediaContainer.Metadata {
-
-		// find 720p if exists
-		bestMedia := item.Media[0]
-		for _, media := range item.Media {
-			if len(media.Part) != 1 {
-				continue
-			}
-			if media.Height <= heightFilter && (bestMedia.Height > heightFilter || media.Height > bestMedia.Height) {
-				bestMedia = media
-			}
-		}
-
-		if len(bestMedia.Part) != 1 {
-			// multipart files - not supported yet
+		var mediaPath, key = plex.GetMediaPath(item, heightFilter)
+		if mediaPath == "" {
 			continue
 		}
 
-		newItem := PlaylistItem{Path: item.Media[0].Part[0].File, Parent: item.GrandparentTitle}
-
+		newItem := PlaylistItem{Path: mediaPath, Parent: item.GrandparentTitle}
 		results = append(results, newItem)
 		parents[item.GrandparentTitle] = true
-		hashName := strings.TrimPrefix(newItem.Path, "/")
-		ext := path.Ext(hashName)
-		hashName = strings.TrimSuffix(hashName, ext)
-		hashmap[hashName] = true
+		hashmap[key] = true
 	}
 
 	rand.Seed(time.Now().UnixNano())

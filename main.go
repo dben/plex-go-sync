@@ -12,7 +12,7 @@ func main() {
 	app := &cli.App{
 		Name:    "plex-go-sync",
 		Usage:   "Sync Plex Libraries",
-		Version: "0.9.0",
+		Version: "0.9.1",
 		Authors: []*cli.Author{
 			{
 				Name: "David Benson",
@@ -58,8 +58,10 @@ func main() {
 				},
 			},
 			{
-				Name:   "clone",
-				Usage:  "Clone a set of libraries",
+				Name: "clone",
+				Usage: "Clone a set of libraries. If the clean flag has been set, the destination library will have " +
+					"all non-playlist items removed first. After cloning, the destination library will have play " +
+					"status synced with the source library.",
 				Action: actions.CloneLibraries,
 				Flags: []cli.Flag{
 					&cli.StringFlag{
@@ -82,7 +84,7 @@ func main() {
 					&cli.StringSliceFlag{
 						Name:    "playlist",
 						Aliases: []string{"p"},
-						Usage:   "Playlist to clone",
+						Usage:   "Playlists to clone",
 					},
 					&cli.StringSliceFlag{
 						Name:  "size",
@@ -106,7 +108,7 @@ func main() {
 					&cli.BoolFlag{
 						Name:    "reset",
 						Aliases: []string{"r"},
-						Usage:   "Start sync from the beginning",
+						Usage:   "Start sync from the beginning, instead of reading from the progress file",
 					},
 					&cli.BoolFlag{
 						Name:    "fast",
@@ -121,7 +123,7 @@ func main() {
 			},
 			{
 				Name:   "clean",
-				Usage:  "Clean a destination library",
+				Usage:  "Clean a destination library of any files not included in the provided playlists",
 				Action: actions.CleanLibrary,
 				Flags: []cli.Flag{
 					&cli.StringFlag{
@@ -155,6 +157,11 @@ func main() {
 						Name:    "destination",
 						Aliases: []string{"d", "dest"},
 						Usage:   "Destination path",
+					},
+					&cli.StringSliceFlag{
+						Name:    "playlist",
+						Aliases: []string{"p"},
+						Usage:   "Playlists to use",
 					},
 					&cli.StringFlag{
 						Name:  "loglevel",

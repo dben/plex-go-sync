@@ -10,6 +10,9 @@ import (
 	"time"
 )
 
+/**
+ * Remove files which are not in a lookup map. If the lookup map is empty, nothing is removed.
+ */
 func cleanFiles(remove removeFS, fs iofs.FS, lookup map[string]bool) (map[string]uint64, int64, error) {
 	results := make(map[string]uint64)
 	totalSize := int64(0)
@@ -17,6 +20,7 @@ func cleanFiles(remove removeFS, fs iofs.FS, lookup map[string]bool) (map[string
 		if info.IsDir() {
 			return nil
 		}
+		// This isn't really used, but if the file's not a mp4 we don't care about it being completely correct
 		key := path
 		size := uint64(1) // skip this check if we can't look up size
 		fi, err := info.Info()
@@ -25,6 +29,8 @@ func cleanFiles(remove removeFS, fs iofs.FS, lookup map[string]bool) (map[string
 		}
 
 		split := strings.Split(path, ".")
+		// If the file is a mp4, we need to calculate a valid key to compare against.
+		// the key is the path to the file, without the base directory, extension, or a leading slash
 		if len(split) > 1 && split[len(split)-1] == "mp4" {
 			key = strings.Join(split[:len(split)-1], ".")
 		}
@@ -41,7 +47,7 @@ func cleanFiles(remove removeFS, fs iofs.FS, lookup map[string]bool) (map[string
 		if err = remove.Remove(path); err != nil {
 			logger.LogInfo("Removing: ", path, err.Error())
 		} else {
-			logger.LogInfo("Removing: ", path, humanize.Bytes(size))
+			logger.LogInfo("Removing: ", path, humanize.Bytes(size), " key: ", key)
 		}
 		return nil
 	})

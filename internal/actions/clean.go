@@ -27,6 +27,18 @@ func CleanPlaylist(playlist *Playlist, config *Config, fs filesystem.FileSystem)
 		return nil, 0, base, err
 	}
 
+	var dir = playlist.GetBase() // get the base directory of the playlist
+	for altList := range config.Playlists {
+		if config.Playlists[altList].Name != playlist.Name {
+			logger.LogInfo("Adding playlist items from ", config.Playlists[altList].Name, " so that we don't delete them")
+			err := GetAltItems(config.Playlists[altList].Name, config.Server, config.Token, dir, playlistItemMap)
+			if err != nil {
+				return nil, 0, base, err
+			}
+		}
+	}
+
+	// if the clean flag is not set, we clear the playlistItemMap so nothing is deleted
 	if !playlist.Clean {
 		playlistItemMap = nil
 	}

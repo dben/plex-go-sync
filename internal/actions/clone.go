@@ -42,6 +42,7 @@ func CloneLibrary(playlist *Playlist, config *Config, src filesystem.FileSystem,
 
 	start := time.Now().Add(-time.Second)
 
+	// loop through each playlist item
 	for i := 0; i < len(playlistItems); i++ {
 		cloneStatus(*playlist, existingSize, totalBytes, start)
 
@@ -53,6 +54,9 @@ func CloneLibrary(playlist *Playlist, config *Config, src filesystem.FileSystem,
 		} else {
 			originalBytes = int64(src.GetSize(item.Path))
 		}
+
+		// if the remaining size available for the playlist is less than the size of the item, remove any extraneous
+		// items from the dest directory until the size needed to copy the item is available
 		if playlist.Size < originalBytes && i != len(playlistItems)-1 {
 			logger.LogInfo("Cleaning up old files...")
 			toRemove := originalBytes - playlist.Size

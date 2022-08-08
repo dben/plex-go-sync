@@ -17,11 +17,12 @@ type Config struct {
 }
 
 type Playlist struct {
-	Clean     bool           `json:clean`
+	Clean     bool           `json:"clean"`
 	LibraryId int            `json:"library"`
 	Name      string         `json:"name"`
 	RawSize   string         `json:"size"`
 	Size      int64          `json:"bytes"`
+	Base      string         `json:"base"`
 	Items     []PlaylistItem `json:"items"`
 }
 
@@ -30,9 +31,14 @@ func NewPlaylist(name string, rawSize string) *Playlist {
 	return &Playlist{Name: name, RawSize: rawSize, Size: int64(size)}
 }
 
+/*
+	Get the base directory of the playlist
+*/
 func (p *Playlist) GetBase() string {
-	before, _, _ := strings.Cut(strings.TrimLeft(p.Items[0].Path, "/"), "/")
-	return before
+	if p.Base == "" {
+		p.Base, _, _ = strings.Cut(strings.TrimLeft(p.Items[0].Path, "/"), "/")
+	}
+	return p.Base
 }
 
 func (p *Playlist) GetSize() int64 {
