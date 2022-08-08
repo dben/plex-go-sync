@@ -208,7 +208,9 @@ func NewSmbConnection(host string, username string, password string) (*smbConnec
 	var err error
 	c.conn, err = net.Dial("tcp", host)
 	if err != nil {
-		_ = c.conn.Close()
+		if c.conn != nil {
+			_ = c.conn.Close()
+		}
 		return nil, err
 	}
 
@@ -221,8 +223,12 @@ func NewSmbConnection(host string, username string, password string) (*smbConnec
 
 	c.session, err = c.dialer.Dial(c.conn)
 	if err != nil {
-		_ = c.session.Logoff()
-		_ = c.conn.Close()
+		if c.session != nil {
+			_ = c.session.Logoff()
+		}
+		if c.conn != nil {
+			_ = c.conn.Close()
+		}
 		return nil, err
 	}
 
@@ -248,12 +254,16 @@ func (f *SmbFileSystem) smbMount(filepath string) (*smb2.Share, string, error) {
 		_, err = conn.session.ListSharenames()
 	}
 	if err != nil {
-		_ = conn.session.Logoff()
-		_ = conn.conn.Close()
+		if conn.session != nil {
+			_ = conn.session.Logoff()
+		}
+		if conn.conn != nil {
+			_ = conn.conn.Close()
+		}
 		smbConnections[addr] = nil
 	}
 	if smbConnections[addr] == nil || err != nil {
-		logger.LogInfo("Mounting //", addr, "/", base)
+		logger.LogInfo("Mounting ", "//"+addr+"/"+base, " directory")
 		conn, err = NewSmbConnection(f.Host, f.Username, f.Password)
 		if err != nil {
 			return nil, filename, err
