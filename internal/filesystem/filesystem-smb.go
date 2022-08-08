@@ -55,7 +55,7 @@ func (f *SmbFileSystem) GetFreeSpace(base string) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	logger.LogVerbose("Free space: ", stat.FreeBlockCount()*stat.BlockSize())
+	logger.LogVerbose("Free space: ", humanize.Bytes(stat.FreeBlockCount()*stat.BlockSize()))
 	return stat.FreeBlockCount() * stat.BlockSize(), nil
 }
 
@@ -102,7 +102,7 @@ func (f *SmbFileSystem) FileWriter(filepath string) (io.WriteCloser, error) {
 		return nil, errors.New("invalid path")
 	}
 
-	logger.LogVerbose("Creating directory ", path.Join(f.GetPath()+path.Dir(filepath)))
+	logger.LogVerbose("Creating ", path.Join(f.GetPath()+path.Dir(filepath)), " directory")
 	err = share.MkdirAll(path.Dir(filename), 0755)
 	if err != nil {
 		return nil, err

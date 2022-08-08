@@ -250,13 +250,16 @@ func GetMediaPath(item plex.Metadata, heightFilter int) (string, string) {
 		return "", ""
 	}
 
+	return bestMedia.Part[0].File, GetKey(bestMedia.Part[0].File)
+}
+
+func GetKey(mediaPath string) string {
 	// the key is the path to the file, without the base directory, extension, or a leading slash
-	key := strings.TrimPrefix(bestMedia.Part[0].File, "/")
+	key := strings.TrimPrefix(mediaPath, "/")
 	_, key, _ = strings.Cut(key, "/")
 	if key == "" {
-		return "", ""
+		return ""
 	}
 	key = strings.TrimSuffix(key, path.Ext(key))
-
-	return bestMedia.Part[0].File, key
+	return key
 }

@@ -99,6 +99,6 @@ func copyFile(from File, to io.WriteCloser, toPath string, id string) (uint64, e
 		}
 	}
 
-	logger.LogVerbose(logger.Green, "Finished copying ", humanize.Bytes(currentSize), " to ", toPath, logger.Reset)
+	logger.LogVerbose(logger.Green+"Finished copying ", humanize.Bytes(currentSize), " to ", toPath, logger.Reset)
 	return currentSize, err
 }

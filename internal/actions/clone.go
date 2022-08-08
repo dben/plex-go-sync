@@ -9,6 +9,7 @@ import (
 	"path"
 	. "plex-go-sync/internal/filesystem"
 	"plex-go-sync/internal/logger"
+	"plex-go-sync/internal/plex"
 	"strconv"
 	"strings"
 	"sync"
@@ -48,10 +49,11 @@ func CloneLibrary(playlist *Playlist, config *Config, src FileSystem, dest FileS
 
 	// loop through each playlist item
 	for i := 0; i < len(playlistItems); i++ {
-		cloneStatus(*playlist, existingSize, totalBytes, start)
+		displayCloneProcessStatus(*playlist, existingSize, totalBytes, start)
 
 		item := playlistItems[i]
-		_, key, _ := strings.Cut(strings.TrimPrefix(item.Path, "/"), "/")
+		var key = plex.GetKey(item.Path)
+
 		var originalBytes int64
 		if existing[key] > 0 {
 			originalBytes = 0
@@ -62,13 +64,13 @@ func CloneLibrary(playlist *Playlist, config *Config, src FileSystem, dest FileS
 		// if the remaining size available for the playlist is less than the size of the item, remove any extraneous
 		// items from the dest directory until the size needed to copy the item is available
 		if playlist.Size < originalBytes && i != len(playlistItems)-1 {
-			logger.LogInfo("Cleaning up old files...")
+			logger.LogInfo("Making space - Checking if any of the", len(playlistItems)-i, "lower priority items exist")
 			toRemove := originalBytes - playlist.Size
 			clearedBytes := removeLast(toRemove, dest, playlistItems[i+1:], existing)
 			if clearedBytes > 0 {
 				logger.LogInfo("Removed last", humanize.Bytes(uint64(clearedBytes)), " from ", playlist.Name)
 				playlist.Size += clearedBytes
-				cloneStatus(*playlist, existingSize, totalBytes, start)
+				displayCloneProcessStatus(*playlist, existingSize, totalBytes, start)
 			}
 		}
 		if existing[key] > 0 {
@@ -98,6 +100,7 @@ func CloneLibrary(playlist *Playlist, config *Config, src FileSystem, dest FileS
 		}
 
 		playlist.Size = int64(math.Max(float64(playlist.Size)-float64(size), 0))
+		playlist.Size, totalBytes = checkFreeSpace(config.Destination, playlist, totalBytes)
 		playlist.Items = playlistItems[i+1:]
 
 		progress <- playlist
@@ -106,8 +109,9 @@ func CloneLibrary(playlist *Playlist, config *Config, src FileSystem, dest FileS
 	wg.Done()
 }
 
-func cloneStatus(playlist Playlist, existingSize int64, totalBytes int64, start time.Time) {
+func displayCloneProcessStatus(playlist Playlist, existingSize int64, totalBytes int64, start time.Time) {
 	if (logger.LogLevel != "WARN") && (logger.LogLevel != "ERROR") {
+		// this display label can be incorrect, but it doesn't really matter for processing the playlist
 		usedSize := totalBytes - playlist.Size + 1
 		remaining := time.Duration((float64(time.Since(start)) / float64(usedSize-existingSize)) * float64(playlist.Size))
 		if remaining < 0 { // this should be enough to check invalid times
@@ -202,7 +206,7 @@ func reencodeVideo(id string, src FileSystem, dest FileSystem, file string, temp
 func removeLast(bytes int64, dest FileSystem, items []PlaylistItem, existing map[string]uint64) int64 {
 	removed := int64(0)
 	for i := len(items) - 1; i >= 0; i-- {
-		_, key, _ := strings.Cut(strings.TrimPrefix(items[i].Path, "/"), "/")
+		key := plex.GetKey(items[i].Path)
 		if existing[key] != 0 {
 			logger.LogVerbose("Removing ", items[i].Path)
 			if err := dest.Remove(items[i].Path); err != nil {
@@ -285,4 +289,18 @@ func watchProgress(progress chan FfmpegProps, errChan chan error, id string) (ui
 			}
 		}
 	}
+}
+
+func checkFreeSpace(root string, playlist *Playlist, totalBytes int64) (int64, int64) {
+	fs := NewFileSystem(root)
+	size, err := fs.GetFreeSpace(playlist.GetBase())
+	if err != nil {
+		return playlist.Size, totalBytes
+	}
+	if size < uint64(playlist.Size) {
+		logger.LogWarning("Not enough free space, adjusting size from", humanize.Bytes(uint64(playlist.Size)), "to", humanize.Bytes(size))
+		return int64(size) - (500 * humanize.MiByte), totalBytes - (playlist.Size - int64(size))
+	}
+	// leave some space on the drive
+	return playlist.Size, totalBytes
 }

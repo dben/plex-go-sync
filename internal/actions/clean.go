@@ -54,7 +54,7 @@ func CleanPlaylist(playlist *Playlist, config *Config, fs filesystem.FileSystem)
 	logger.LogInfo("Cleaning ", path.Join(fs.GetPath(), base), " directory")
 	existing, existingSize, err := fs.Clean(base, playlistItemMap)
 	if err == nil {
-		logger.LogInfo("Existing Size: ", humanize.Bytes(uint64(existingSize)))
+		logger.LogInfo("Existing  Size: ", humanize.Bytes(uint64(existingSize)))
 	}
 
 	return existing, existingSize, base, err

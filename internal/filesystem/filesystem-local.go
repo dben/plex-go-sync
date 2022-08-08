@@ -55,13 +55,13 @@ func (f *LocalFileSystem) GetFile(filename string) File {
 }
 
 func (f *LocalFileSystem) ReadFile(filename string) (io.ReadCloser, error) {
-	logger.LogVerbose("Reading file", filename)
+	logger.LogVerbose("Reading ", filename)
 	return os.Open(f.abs(filename))
 }
 
 func (f *LocalFileSystem) FileWriter(filename string) (io.WriteCloser, error) {
 	absPath := f.abs(filename)
-	logger.LogVerbose("Creating directory ", path.Dir(absPath))
+	logger.LogVerbose("Creating ", path.Dir(absPath), " directory")
 	if err := os.MkdirAll(path.Dir(absPath), 0755); err != nil {
 		return nil, err
 	}
@@ -90,13 +90,13 @@ func (f *LocalFileSystem) IsLocal() bool {
 
 func (f *LocalFileSystem) Mkdir(dir string) error {
 	dir = f.abs(dir)
-	logger.LogVerbose("Creating directory ", dir)
+	logger.LogVerbose("Creating ", dir, " directory")
 	return os.MkdirAll(dir, 0755)
 }
 
 func (f *LocalFileSystem) RemoveAll(dir string) error {
 	dir = f.abs(dir)
-	logger.LogVerbose("Removing directory ", dir)
+	logger.LogVerbose("Removing ", dir, " directory")
 	readDir, err := os.ReadDir(dir)
 	if err != nil {
 		return err
@@ -112,7 +112,7 @@ func (f *LocalFileSystem) RemoveAll(dir string) error {
 
 func (f *LocalFileSystem) Remove(dir string) error {
 	dir = f.abs(dir)
-	logger.LogVerbose("Removing file ", dir)
+	logger.LogVerbose("Removing ", dir)
 	return os.Remove(dir)
 }
 
