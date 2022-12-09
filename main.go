@@ -1,11 +1,16 @@
 package main
 
 import (
+	"context"
 	_ "fmt"
 	"github.com/urfave/cli/v2"
 	"os"
-	"plex-go-sync/internal/actions"
+	"os/signal"
+	"plex-go-sync/internal/actions/clean"
+	"plex-go-sync/internal/actions/clone"
+	"plex-go-sync/internal/actions/sync"
 	"plex-go-sync/internal/logger"
+	"syscall"
 )
 
 func main() {
@@ -22,7 +27,7 @@ func main() {
 			{
 				Name:   "sync",
 				Usage:  "Sync play status only",
-				Action: actions.SyncPlayStatus,
+				Action: sync.FromContext,
 				Flags: []cli.Flag{
 					&cli.PathFlag{
 						Name:      "config",
@@ -46,6 +51,11 @@ func main() {
 						Aliases: []string{"l"},
 						Usage:   "Library to sync",
 					},
+					&cli.BoolFlag{
+						Name:    "fast",
+						Aliases: []string{"f"},
+						Usage:   "Skip checking by duration if duration isn't specified in metadata",
+					},
 					&cli.StringFlag{
 						Name:    "destination-server",
 						Aliases: []string{"o"},
@@ -62,7 +72,7 @@ func main() {
 				Usage: "Clone a set of libraries. If the clean flag has been set, the destination library will have " +
 					"all non-playlist items removed first. After cloning, the destination library will have play " +
 					"status synced with the source library.",
-				Action: actions.CloneLibraries,
+				Action: clone.FromContext,
 				Flags: []cli.Flag{
 					&cli.StringFlag{
 						Name:      "config",
@@ -115,6 +125,12 @@ func main() {
 						Aliases: []string{"f"},
 						Usage:   "Skip files requiring full encodings",
 					},
+					&cli.UintFlag{
+						Name:    "threads",
+						Aliases: []string{"x"},
+						Usage:   "Number of threads to use",
+						Value:   2,
+					},
 					&cli.StringFlag{
 						Name:  "loglevel",
 						Usage: "One of VERBOSE, INFO, WARN, ERROR",
@@ -124,7 +140,7 @@ func main() {
 			{
 				Name:   "clean",
 				Usage:  "Clean a destination library of any files not included in the provided playlists",
-				Action: actions.CleanLibrary,
+				Action: clean.FromContext,
 				Flags: []cli.Flag{
 					&cli.StringFlag{
 						Name:      "config",
@@ -158,6 +174,12 @@ func main() {
 						Aliases: []string{"d", "dest"},
 						Usage:   "Destination path",
 					},
+					&cli.UintFlag{
+						Name:    "threads",
+						Aliases: []string{"x"},
+						Usage:   "Number of threads to use",
+						Value:   2,
+					},
 					&cli.StringSliceFlag{
 						Name:    "playlist",
 						Aliases: []string{"p"},
@@ -172,7 +194,16 @@ func main() {
 		},
 	}
 
-	if err := app.Run(os.Args); err != nil {
+	ctx, cancel := context.WithCancel(context.Background())
+	exit := make(chan os.Signal, 1)
+	signal.Notify(exit, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-exit
+		logger.LogWarning("Received interrupt, shutting down")
+		cancel()
+	}()
+
+	if err := app.RunContext(ctx, os.Args); err != nil {
 		logger.LogError(err)
 	}
 }

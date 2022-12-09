@@ -1,9 +1,11 @@
 package filesystem
 
 import (
+	"context"
 	"github.com/dustin/go-humanize"
 	"github.com/shirou/gopsutil/disk"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"plex-go-sync/internal/logger"
@@ -20,16 +22,27 @@ func NewLocalFileSystem(dir string) FileSystem {
 
 func (f *LocalFileSystem) GetFreeSpace(base string) (uint64, error) {
 	stat, err := disk.Usage(path.Join(f.Path, base))
-	return stat.Free, err
+	if err != nil {
+		return 0, err
+	}
+	return stat.Free, nil
 }
 
-func (f *LocalFileSystem) Clean(base string, lookup map[string]bool) (map[string]uint64, int64, error) {
-	logger.LogInfo("Cleaning ", base)
+func (f *LocalFileSystem) GetFileSystem(base string) (fs.FS, error) {
 	dir := f.abs(base)
-	return cleanFiles(&osImpl{}, os.DirFS(dir), lookup)
+	return os.DirFS(dir), nil
 }
 
-func (f *LocalFileSystem) DownloadFile(fs FileSystem, filename string, id string) (uint64, error) {
+func (f *LocalFileSystem) IsEmptyDir(dir string) bool {
+	dir = f.abs(dir)
+	readDir, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	return len(readDir) == 0
+}
+
+func (f *LocalFileSystem) DownloadFile(ctx *context.Context, fs FileSystem, filename string, id string) (uint64, error) {
 	absPath := f.abs(filename)
 
 	if stat, err := os.Stat(absPath); err == nil {
@@ -47,7 +60,11 @@ func (f *LocalFileSystem) DownloadFile(fs FileSystem, filename string, id string
 		return 0, err
 	}
 
-	return copyFile(fs.GetFile(filename), file, absPath, id)
+	size, err := copyFile(ctx, fs.GetFile(filename), file, absPath, id)
+	if err != nil {
+		_ = os.Remove(absPath)
+	}
+	return size, err
 }
 
 func (f *LocalFileSystem) GetFile(filename string) File {
@@ -55,7 +72,7 @@ func (f *LocalFileSystem) GetFile(filename string) File {
 }
 
 func (f *LocalFileSystem) ReadFile(filename string) (io.ReadCloser, error) {
-	logger.LogVerbose("Reading ", filename)
+	logger.LogVerbosef("Reading file (%s)\n", f.abs(filename))
 	return os.Open(f.abs(filename))
 }
 
@@ -73,15 +90,15 @@ func (f *LocalFileSystem) GetPath() string {
 	return f.Path
 }
 
-func (f *LocalFileSystem) GetSize(filename string) uint64 {
+func (f *LocalFileSystem) GetSize(filename string) (uint64, error) {
 	stat, err := os.Stat(f.abs(filename))
 	if err != nil {
 		logger.LogWarningf("Error getting size of file (%s/%s): %s\n", f.Path, filename, err.Error())
-		return 0
+		return 0, err
 	}
 	logger.LogVerbosef("Size of file (%s/%s): %s\n", f.Path, filename, humanize.Bytes(uint64(stat.Size())))
 
-	return uint64(stat.Size())
+	return uint64(stat.Size()), nil
 }
 
 func (f *LocalFileSystem) IsLocal() bool {

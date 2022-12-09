@@ -1,10 +1,12 @@
 package filesystem
 
 import (
+	"context"
 	"errors"
 	"github.com/dustin/go-humanize"
 	"github.com/hirochachacha/go-smb2"
 	"io"
+	"io/fs"
 	"net"
 	"path"
 	"plex-go-sync/internal/logger"
@@ -59,17 +61,31 @@ func (f *SmbFileSystem) GetFreeSpace(base string) (uint64, error) {
 	return stat.FreeBlockCount() * stat.BlockSize(), nil
 }
 
-func (f *SmbFileSystem) Clean(base string, lookup map[string]bool) (map[string]uint64, int64, error) {
-	logger.LogInfo("Cleaning ", base)
+func (f *SmbFileSystem) GetFileSystem(base string) (fs.FS, error) {
 	share, _, err := f.smbMount(base)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
-	fs := share.DirFS(".")
-	return cleanFiles(share, fs, lookup)
+	return share.DirFS("."), nil
 }
 
-func (f *SmbFileSystem) DownloadFile(fs FileSystem, filepath string, id string) (uint64, error) {
+func (f *SmbFileSystem) IsEmptyDir(dir string) bool {
+	share, filename, err := f.smbMount(dir)
+	if err != nil {
+		return false
+	}
+	if filename == "" {
+		return false
+	}
+
+	files, err := share.ReadDir(filename)
+	if err != nil {
+		return false
+	}
+	return len(files) == 0
+}
+
+func (f *SmbFileSystem) DownloadFile(ctx *context.Context, fs FileSystem, filepath string, id string) (uint64, error) {
 	share, filename, err := f.smbMount(filepath)
 	if err != nil {
 		return 0, err
@@ -90,7 +106,11 @@ func (f *SmbFileSystem) DownloadFile(fs FileSystem, filepath string, id string) 
 		return 0, err
 	}
 
-	return copyFile(fs.GetFile(filepath), file, path.Join(f.GetPath(), filepath), id)
+	size, err := copyFile(ctx, fs.GetFile(filepath), file, path.Join(f.GetPath(), filepath), id)
+	if err != nil {
+		_ = share.Remove(filename)
+	}
+	return size, nil
 }
 
 func (f *SmbFileSystem) FileWriter(filepath string) (io.WriteCloser, error) {
@@ -124,7 +144,7 @@ func (f *SmbFileSystem) ReadFile(filepath string) (io.ReadCloser, error) {
 	if filename == "" {
 		return nil, errors.New("invalid path")
 	}
-	logger.LogVerbosef("Reading file (%s)\n", filename)
+	logger.LogVerbosef("Reading file (%s)\n", path.Join(f.GetPath(), filepath))
 	return share.Open(filename)
 }
 
@@ -132,23 +152,23 @@ func (f *SmbFileSystem) GetPath() string {
 	return "//" + f.Host + "/"
 }
 
-func (f *SmbFileSystem) GetSize(filepath string) uint64 {
+func (f *SmbFileSystem) GetSize(filepath string) (uint64, error) {
 	share, filename, err := f.smbMount(filepath)
 	if err != nil {
-		return 0
+		return 0, err
 	}
 	if filename == "" {
-		return 0
+		return 0, errors.New("invalid path")
 	}
 
 	file, err := share.Open(filename)
 	if err != nil {
-		return 0
+		return 0, err
 	}
 	stat, err := file.Stat()
-	logger.LogVerbosef("Size of file (%s%s): %s\n", f.Path, filename, humanize.Bytes(uint64(stat.Size())))
+	logger.LogVerbosef("Size of file (%s): %s\n", path.Join(f.GetPath(), filepath), humanize.Bytes(uint64(stat.Size())))
 
-	return uint64(stat.Size())
+	return uint64(stat.Size()), err
 }
 
 func (f *SmbFileSystem) IsLocal() bool {
@@ -263,7 +283,7 @@ func (f *SmbFileSystem) smbMount(filepath string) (*smb2.Share, string, error) {
 		smbConnections[addr] = nil
 	}
 	if smbConnections[addr] == nil || err != nil {
-		logger.LogInfo("Mounting ", "//"+addr+"/"+base, " directory")
+		logger.LogInfo("Connecting to ", f.Host)
 		conn, err = NewSmbConnection(f.Host, f.Username, f.Password)
 		if err != nil {
 			return nil, filename, err
@@ -272,12 +292,15 @@ func (f *SmbFileSystem) smbMount(filepath string) (*smb2.Share, string, error) {
 	}
 
 	if conn.shares[base] != nil {
+		logger.LogVerbose("Using cached share ", base)
 		_, err = conn.shares[base].Stat(".")
 	}
 	if err != nil {
+		logger.LogWarning("Share ", base, " is not available")
 		_ = conn.shares[base].Umount()
 	}
 	if conn.shares[base] == nil || err != nil {
+		logger.LogVerbose("Mounting ", "//"+addr+"/"+base, " share")
 		conn.shares[base], err = conn.session.Mount("//" + addr + "/" + base)
 		if err != nil {
 			if conn.shares[base] != nil {

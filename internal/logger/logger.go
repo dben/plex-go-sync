@@ -14,6 +14,7 @@ const Yellow = "\033[0;33m"
 const Green = "\033[0;32m"
 const Blue = "\033[0;34m"
 const Magenta = "\033[0;35m"
+const Gray = "\033[0;37m"
 const Red = "\033[0;31m"
 const Reset = "\033[0m"
 
@@ -68,7 +69,7 @@ func SetLogLevel(level string) {
 func LogVerbose(v ...any) {
 	if LogLevel == "VERBOSE" {
 		Cleanup()
-		_ = stdout.Output(depth, fmt.Sprintln(v...))
+		_ = stdout.Output(depth, Gray+fmt.Sprintln(v...)+Reset)
 	}
 }
 func LogInfo(v ...any) {
@@ -91,7 +92,7 @@ func LogError(v ...any) {
 func LogVerbosef(format string, v ...any) {
 	if LogLevel == "VERBOSE" {
 		Cleanup()
-		_ = stdout.Output(depth, fmt.Sprintf(format, v...))
+		_ = stdout.Output(depth, Gray+fmt.Sprintf(format, v...)+Reset)
 	}
 }
 func LogInfof(format string, v ...any) {
@@ -148,7 +149,7 @@ func LogPersistent(id string, v ...any) {
 }
 
 func Progress(id string, percent float64, v ...any) {
-	if LogLevel != "WARN" && LogLevel != "ERROR" {
+	if LogLevel != "WARN" && LogLevel != "ERROR" && percent > 0 {
 		LogPersistent(id, fmt.Sprintf(Blue+"[%-50s]"+Reset+" %3d%% ", strings.Repeat("#", int(percent*50)), int(percent*100)), fmt.Sprint(v...))
 	}
 }

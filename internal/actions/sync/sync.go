@@ -1,9 +1,30 @@
-package actions
+package sync
 
 import (
+	"context"
+	"github.com/urfave/cli/v2"
 	"plex-go-sync/internal/logger"
+	"plex-go-sync/internal/models"
 	"plex-go-sync/internal/plex"
 )
+
+func FromContext(c *cli.Context) error {
+	logger.SetLogLevel(c.String("loglevel"))
+	config, err := models.ReadConfig(c)
+
+	if err != nil {
+		logger.LogError(err.Error())
+		return err
+	}
+
+	ctx := context.WithValue(c.Context, "config", config)
+	err = SyncLibraries(&ctx)
+	if err != nil {
+		logger.LogError(err.Error())
+	}
+
+	return nil
+}
 
 func SyncLibrary(key string, source *plex.Server, dest *plex.Server) {
 	destLibrary, err := dest.GetLibraryContent(key, "")
@@ -68,7 +89,8 @@ func SyncLibrary(key string, source *plex.Server, dest *plex.Server) {
 
 }
 
-func SyncLibraries(config *Config) error {
+func SyncLibraries(ctx *context.Context) error {
+	config := models.GetConfig(ctx)
 	source, err := plex.New(config.Server, config.Token)
 	if err != nil {
 		return err
@@ -79,7 +101,7 @@ func SyncLibraries(config *Config) error {
 		return err
 	}
 
-	lib := dest.RefreshLibraries()
+	lib := dest.RefreshLibraries(ctx)
 	for key := range lib {
 		go SyncLibrary(key, source, dest)
 	}

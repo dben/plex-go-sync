@@ -1,0 +1,18 @@
+{
+  "extension": "mp4",
+  "quick": {
+    "vcodec":   "copy",
+    "format":   "mp4",
+    "loglevel": "error",
+    "y": ""
+  },
+
+  "normal": {
+    "c:v":      "libx264",
+    "crf":      23,
+    "s":        "1280x720",
+    "format":   "mp4",
+    "loglevel": "error", "y": ""
+  }
+
+}

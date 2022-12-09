@@ -1,12 +1,13 @@
-package actions
+package clone
 
 import (
 	"encoding/json"
 	"os"
 	"plex-go-sync/internal/logger"
+	"plex-go-sync/internal/models"
 )
 
-func WriteProgress(playlists []Playlist) error {
+func WriteProgress(playlists []models.Playlist) error {
 	file, err := os.Create("progress.json")
 	if err != nil {
 		logger.LogWarning("Error creating progress file: ", err)
@@ -17,15 +18,19 @@ func WriteProgress(playlists []Playlist) error {
 	}(file)
 	encoder := json.NewEncoder(file)
 	encoder.SetIndent("", "  ")
-	if err = encoder.Encode(playlists); err != nil {
+	err = encoder.Encode(playlists)
+	if err != nil {
 		logger.LogWarning("Error writing progress file: ", err)
-		return err
 	}
-	return nil
+	err = file.Close()
+	if err != nil {
+		logger.LogWarning("Error writing progress file: ", err)
+	}
+	return err
 }
 
-func LoadProgress() ([]Playlist, error) {
-	var playlists []Playlist
+func LoadProgress() ([]models.Playlist, error) {
+	var playlists []models.Playlist
 	file, err := os.Open("progress.json")
 	if err != nil {
 		logger.LogInfo("No progress file found")
@@ -44,4 +49,23 @@ func LoadProgress() ([]Playlist, error) {
 
 func ClearProgress() {
 	_ = os.Remove("progress.json")
+}
+
+func WatchProgress(progress chan *models.Playlist, playlists *[]models.Playlist) {
+	for {
+		updated, more := <-progress
+		for i := range *playlists {
+			playlist := &(*playlists)[i]
+			if updated != nil && playlist.Name == updated.Name {
+				(*playlists)[i].Items = (*updated).Items
+				break
+			}
+		}
+		if more {
+			logger.LogVerbose("Writing progress.json")
+			_ = WriteProgress(*playlists)
+		} else {
+			break
+		}
+	}
 }

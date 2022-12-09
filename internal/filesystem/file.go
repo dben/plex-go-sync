@@ -1,21 +1,24 @@
 package filesystem
 
 import (
+	"context"
 	"io"
 	"path"
 	"plex-go-sync/internal/logger"
 )
 
 type File interface {
-	CopyFrom(fs FileSystem, id string) (uint64, error)
-	CopyTo(fs FileSystem, id string) (File, error)
-	MoveFrom(fs FileSystem, id string) (uint64, error)
-	MoveTo(fs FileSystem, id string) (File, error)
+	CopyFrom(ctx *context.Context, fs FileSystem, id string) (uint64, error)
+	CopyTo(ctx *context.Context, fs FileSystem, id string) (File, error)
+	MoveFrom(ctx *context.Context, fs FileSystem, id string) (uint64, error)
+	MoveTo(ctx *context.Context, fs FileSystem, id string) (File, error)
 	ReadFile() (io.ReadCloser, error)
 	FileWriter() (io.WriteCloser, error)
 	GetRelativePath() string
 	GetAbsolutePath() string
-	GetSize() uint64
+	Mkdir() error
+	GetSize() (uint64, error)
+	GetExtension() string
 	GetFileSystem() FileSystem
 	IsLocal() bool
 	Remove() error
@@ -26,17 +29,17 @@ type FileImpl struct {
 	CachedSize uint64
 }
 
-func (f *FileImpl) CopyFrom(src FileSystem, id string) (uint64, error) {
-	size, err := f.FileSystem.DownloadFile(src, f.Path, id)
+func (f *FileImpl) CopyFrom(ctx *context.Context, src FileSystem, id string) (uint64, error) {
+	size, err := f.FileSystem.DownloadFile(ctx, src, f.Path, id)
 	f.CachedSize = size
 	return size, err
 }
-func (f *FileImpl) CopyTo(dest FileSystem, id string) (File, error) {
+func (f *FileImpl) CopyTo(ctx *context.Context, dest FileSystem, id string) (File, error) {
 	destFile := &FileImpl{
 		FileSystem: dest,
 		Path:       f.Path,
 	}
-	size, err := destFile.CopyFrom(f.FileSystem, id)
+	size, err := destFile.CopyFrom(ctx, f.FileSystem, id)
 	destFile.CachedSize = size
 	return destFile, err
 }
@@ -55,22 +58,33 @@ func (f *FileImpl) GetRelativePath() string {
 func (f *FileImpl) GetAbsolutePath() string {
 	return path.Join(f.FileSystem.GetPath(), f.Path)
 }
-
-func (f *FileImpl) GetSize() uint64 {
-	if f.CachedSize == 0 {
-		f.CachedSize = f.FileSystem.GetSize(f.Path)
-	}
-	return f.CachedSize
+func (f *FileImpl) Mkdir() error {
+	return f.FileSystem.Mkdir(path.Dir(f.Path))
 }
+
+func (f *FileImpl) GetSize() (uint64, error) {
+	var err error
+	if f.CachedSize == 0 {
+		f.CachedSize, err = f.FileSystem.GetSize(f.Path)
+		if err != nil {
+			f.CachedSize = 0
+		}
+	}
+	return f.CachedSize, err
+}
+func (f *FileImpl) GetExtension() string {
+	return path.Ext(f.Path)
+}
+
 func (f *FileImpl) IsLocal() bool {
 	return f.FileSystem.IsLocal()
 }
 func (f *FileImpl) Remove() error {
 	return f.FileSystem.Remove(f.Path)
 }
-func (f *FileImpl) MoveFrom(src FileSystem, id string) (uint64, error) {
+func (f *FileImpl) MoveFrom(ctx *context.Context, src FileSystem, id string) (uint64, error) {
 	logger.LogVerbose("Moving file ", path.Join(src.GetPath(), f.Path), " to ", f.FileSystem.GetPath())
-	size, err := f.FileSystem.DownloadFile(src, f.Path, id)
+	size, err := f.FileSystem.DownloadFile(ctx, src, f.Path, id)
 	f.CachedSize = size
 	if err != nil {
 		return 0, err
@@ -80,12 +94,12 @@ func (f *FileImpl) MoveFrom(src FileSystem, id string) (uint64, error) {
 	}
 	return size, nil
 }
-func (f *FileImpl) MoveTo(dest FileSystem, id string) (File, error) {
+func (f *FileImpl) MoveTo(ctx *context.Context, dest FileSystem, id string) (File, error) {
 	destFile := &FileImpl{
 		FileSystem: dest,
 		Path:       f.Path,
 	}
-	size, err := destFile.MoveFrom(f.FileSystem, id)
+	size, err := destFile.MoveFrom(ctx, f.FileSystem, id)
 	destFile.CachedSize = size
 	return destFile, err
 }

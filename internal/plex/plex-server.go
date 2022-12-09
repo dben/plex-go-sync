@@ -1,6 +1,7 @@
 package plex
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"net/url"
 	"path"
 	"plex-go-sync/internal/logger"
+	"plex-go-sync/internal/models"
 	"strconv"
 	"strings"
 	"time"
@@ -69,7 +71,7 @@ func (p *Server) RefreshLibrary(id int, path string) error {
 	return nil
 }
 
-func (p *Server) RefreshLibraries() chan string {
+func (p *Server) RefreshLibraries(ctx *context.Context) chan string {
 	results := make(chan string)
 	query := fmt.Sprintf("%s/library/sections/all/refresh", p.URL)
 	if _, err := p.http("GET", query); err != nil {
@@ -103,6 +105,8 @@ func (p *Server) RefreshLibraries() chan string {
 				if !refreshing {
 					return
 				}
+			case <-(*ctx).Done():
+				return
 			case <-timeout:
 				return
 			}
@@ -233,24 +237,43 @@ func (p *Server) GetPlaylistItems(name string) (plex.SearchResultsEpisode, error
 	return items, nil
 }
 
-func GetMediaPath(item plex.Metadata, heightFilter int) (string, string) {
+func GetMediaPath(ctx *context.Context, item plex.Metadata, baseDir string) ([]string, time.Duration) {
+	config := models.GetConfig(ctx)
 	// find 720p if exists
 	bestMedia := item.Media[0]
 	for _, media := range item.Media {
 		if len(media.Part) != 1 {
 			continue
 		}
-		if media.Height <= heightFilter && (bestMedia.Height > heightFilter || media.Height > bestMedia.Height) {
+		if baseDir != "" {
+			var base, _, _ = strings.Cut(strings.TrimLeft(media.Part[0].File, "/"), "/")
+			if base != baseDir {
+				continue
+			}
+		}
+
+		if media.Height <= config.MediaFormat.HeightFilter &&
+			(bestMedia.Height > config.MediaFormat.HeightFilter || media.Height > bestMedia.Height) &&
+			len(media.Part) == 1 {
 			bestMedia = media
 		}
 	}
 
 	if len(bestMedia.Part) != 1 {
 		// multipart files - not supported yet
-		return "", ""
+		return []string{}, -1
 	}
 
-	return bestMedia.Part[0].File, GetKey(bestMedia.Part[0].File)
+	// Eventually we should just sort the media by best match and then return all the items, but for now we
+	// just return up to two items
+	mediaPaths := []string{
+		bestMedia.Part[0].File,
+	}
+	if bestMedia.Part[0].File != item.Media[0].Part[0].File {
+		mediaPaths = append(mediaPaths, item.Media[0].Part[0].File)
+	}
+
+	return mediaPaths, time.Duration(bestMedia.Duration) * time.Millisecond
 }
 
 func GetKey(mediaPath string) string {
